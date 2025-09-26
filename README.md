@@ -123,6 +123,7 @@ This project now supports MCP, allowing AI applications like Claude Desktop to c
 
 - **`execute_sql_query`** - Execute SQL queries against uploaded CSV data
 - **`upload_csv_data`** - Upload CSV content and create tables in DuckDB
+- **`upload_csv_from_url`** - Download CSV file from URL and create tables in DuckDB
 - **`get_table_schema`** - Get schema information for specific tables
 - **`list_available_tables`** - List all available tables in the database
 
@@ -155,17 +156,22 @@ Add this configuration to your `claude_desktop_config.json`:
 
 ### Example Usage with MCP
 
-1. **Upload CSV data**:
+1. **Upload CSV data from string**:
    ```
    Use the upload_csv_data tool with your CSV content, specify a table name like "sales_data"
    ```
 
-2. **Query the data**:
+2. **Upload CSV data from URL**:
+   ```
+   Use upload_csv_from_url with URL: "https://example.com/data.csv" and table name "external_data"
+   ```
+
+3. **Query the data**:
    ```
    Use execute_sql_query: "SELECT * FROM sales_data WHERE amount > 1000 ORDER BY date DESC LIMIT 10"
    ```
 
-3. **Explore schema**:
+4. **Explore schema**:
    ```
    Use get_table_schema with table name "sales_data" to see column details
    ```

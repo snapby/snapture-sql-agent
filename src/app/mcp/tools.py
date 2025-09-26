@@ -4,9 +4,13 @@ This module provides MCP-compatible wrappers around the existing tool implementa
 allowing them to be used within the MCP server context.
 """
 
+import os
+import tempfile
 from typing import List
+from urllib.parse import urlparse
 
 import duckdb
+import httpx
 from loguru import logger
 from mcp.types import TextContent
 
@@ -263,5 +267,161 @@ The table is now available for querying. Use execute_sql_query to run SQL querie
             return [
                 TextContent(
                     type="text", text=f"❌ Error uploading CSV data: {str(e)}"
+                )
+            ]
+
+    async def upload_csv_from_url(
+        self, csv_url: str, table_name: str, description: str = ""
+    ) -> List[TextContent]:
+        """Download CSV from URL and upload to DuckDB.
+
+        Args:
+            csv_url: URL of the CSV file to download
+            table_name: Name for the new table
+            description: Optional description of the data
+
+        Returns:
+            List of TextContent with upload results
+        """
+        try:
+            # Validate table name (basic SQL injection prevention)
+            if not table_name.isidentifier():
+                return [
+                    TextContent(
+                        type="text",
+                        text=f"Invalid table name: '{table_name}'. Table names must be valid SQL identifiers.",
+                    )
+                ]
+
+            # Validate URL
+            parsed_url = urlparse(csv_url)
+            if not all([parsed_url.scheme, parsed_url.netloc]):
+                return [
+                    TextContent(
+                        type="text",
+                        text=f"❌ Invalid URL format: {csv_url}. Please provide a valid HTTP/HTTPS URL.",
+                    )
+                ]
+
+            if parsed_url.scheme not in ["http", "https"]:
+                return [
+                    TextContent(
+                        type="text",
+                        text=f"❌ Unsupported URL scheme: {parsed_url.scheme}. Only HTTP and HTTPS are supported.",
+                    )
+                ]
+
+            logger.info(f"Downloading CSV from URL: {csv_url}")
+
+            # Download CSV file with timeout and size limits
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(30.0), follow_redirects=True
+            ) as client:
+                try:
+                    response = await client.get(csv_url)
+                    response.raise_for_status()
+
+                    # Check content type (optional warning)
+                    content_type = response.headers.get(
+                        "content-type", ""
+                    ).lower()
+                    if (
+                        "text/csv" not in content_type
+                        and "application/csv" not in content_type
+                    ):
+                        logger.warning(
+                            f"URL does not appear to be CSV (content-type: {content_type})"
+                        )
+
+                    csv_content = response.text
+
+                    # Basic CSV validation - check if it has at least some commas or tabs
+                    if not csv_content.strip():
+                        return [
+                            TextContent(
+                                type="text",
+                                text="❌ Downloaded file is empty.",
+                            )
+                        ]
+
+                    # Check if it looks like CSV (has commas or tabs in first few lines)
+                    first_lines = csv_content[:1000]  # First 1KB
+                    if "," not in first_lines and "\t" not in first_lines:
+                        logger.warning(
+                            "Downloaded content doesn't appear to be CSV format"
+                        )
+
+                except httpx.HTTPStatusError as e:
+                    return [
+                        TextContent(
+                            type="text",
+                            text=f"❌ HTTP error downloading file: {e.response.status_code} {e.response.reason_phrase}",
+                        )
+                    ]
+                except httpx.RequestError as e:
+                    return [
+                        TextContent(
+                            type="text",
+                            text=f"❌ Network error downloading file: {str(e)}",
+                        )
+                    ]
+
+            # Write CSV to temporary file
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".csv", delete=False, encoding="utf-8"
+            ) as temp_file:
+                temp_file.write(csv_content)
+                temp_path = temp_file.name
+
+            try:
+                # Load CSV into DuckDB
+                self.connection.execute(f"""
+                    CREATE OR REPLACE TABLE {table_name} AS 
+                    SELECT * FROM read_csv('{temp_path}', auto_detect=true, header=true)
+                """)
+
+                # Get information about the loaded table
+                row_count = self.connection.execute(
+                    f"SELECT COUNT(*) FROM {table_name}"
+                ).fetchone()[0]
+                schema = self.connection.execute(
+                    f"DESCRIBE {table_name}"
+                ).fetchall()
+
+                # Format schema information
+                schema_lines = []
+                for column_info in schema:
+                    col_name, col_type = column_info[0], column_info[1]
+                    schema_lines.append(f"  {col_name}: {col_type}")
+
+                # Get file size for reporting
+                file_size_kb = len(csv_content.encode("utf-8")) / 1024
+
+                success_message = f"""✅ CSV file successfully downloaded and uploaded!
+
+Source URL: {csv_url}
+Table: {table_name}
+File size: {file_size_kb:.1f} KB
+Rows loaded: {row_count}
+Description: {description or "No description provided"}
+
+Schema:
+{chr(10).join(schema_lines)}
+
+The table is now available for querying. Use execute_sql_query to run SQL queries against this data."""
+
+                return [TextContent(type="text", text=success_message)]
+
+            finally:
+                # Clean up temporary file
+                if os.path.exists(temp_path):
+                    os.unlink(temp_path)
+
+        except Exception as e:
+            logger.error(f"Error uploading CSV from URL: {e}")
+            return [
+                TextContent(
+                    type="text",
+                    text=f"❌ Error uploading CSV from URL: {str(e)}",
                 )
             ]

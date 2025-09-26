@@ -104,9 +104,20 @@ docker_shell:
 mcp:
 	uv run python mcp_server.py
 
-# Test MCP server with the MCP CLI inspector
-mcp-test:
-	uv run mcp --help || echo "Install MCP CLI with: uv add mcp[cli] --group dev"
+# Test MCP server with the official MCP Inspector
+mcp-inspect:
+	npx @modelcontextprotocol/inspector ./run_mcp_server.sh
+
+# Test MCP server in CLI mode
+mcp-inspect-cli:
+	npx @modelcontextprotocol/inspector --cli --transport stdio --method tools/list ./run_mcp_server.sh
+
+# Test MCP server tools listing
+mcp-list-tools:
+	@echo "Testing MCP server tools..."
+	@timeout 10s ./run_mcp_server.sh &
+	@sleep 2
+	@echo "Server started. Use MCP Inspector to connect."
 
 # ------------------------------------------------------------------------------
 # Python dependencies

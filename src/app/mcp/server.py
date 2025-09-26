@@ -1,6 +1,5 @@
 """MCP server implementation for the Text-to-SQL Agent."""
 
-import asyncio
 import os
 import tempfile
 from typing import List
@@ -471,10 +470,10 @@ Use execute_sql_query to query the data."""
                     )
                 ]
 
-    async def run(self) -> None:
+    def run(self) -> None:
         """Run the MCP server."""
         logger.info(f"Starting MCP server: {self.config.server_name}")
-        await self.mcp.run(transport="stdio")
+        self.mcp.run(transport="stdio")
 
 
 def create_mcp_server(config: MCPServerConfig) -> SQLAgentMCPServer:
@@ -489,12 +488,12 @@ def create_mcp_server(config: MCPServerConfig) -> SQLAgentMCPServer:
     return SQLAgentMCPServer(config)
 
 
-async def main() -> None:
+def main() -> None:
     """Main entry point for running the MCP server directly."""
     config = MCPServerConfig()
     server = create_mcp_server(config)
-    await server.run()
+    server.run()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

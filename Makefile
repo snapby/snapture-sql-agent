@@ -97,6 +97,18 @@ docker_shell:
 	docker exec -it $(DOCKER_CONTAINER_NAME) /bin/bash
 
 # ------------------------------------------------------------------------------
+# MCP Server
+# ------------------------------------------------------------------------------
+
+# Run the MCP server for Model Context Protocol integration
+mcp:
+	uv run python mcp_server.py
+
+# Test MCP server with the MCP CLI inspector
+mcp-test:
+	uv run mcp --help || echo "Install MCP CLI with: uv add mcp[cli] --group dev"
+
+# ------------------------------------------------------------------------------
 # Python dependencies
 # ------------------------------------------------------------------------------
 

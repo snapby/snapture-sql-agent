@@ -115,6 +115,61 @@ uv sync --all-groups
 
 6. **Stop the application and background services.** Terminate the processes you (this may involve using `Ctrl+C` in the terminal)
     
+## MCP (Model Context Protocol) Integration
+
+This project now supports MCP, allowing AI applications like Claude Desktop to connect directly to the SQL agent.
+
+### Available MCP Tools
+
+- **`execute_sql_query`** - Execute SQL queries against uploaded CSV data
+- **`upload_csv_data`** - Upload CSV content and create tables in DuckDB
+- **`get_table_schema`** - Get schema information for specific tables
+- **`list_available_tables`** - List all available tables in the database
+
+### Running the MCP Server
+
+```shell
+# Run the MCP server
+make mcp
+
+# Or directly with uv
+uv run python mcp_server.py
+```
+
+### Claude Desktop Integration
+
+Add this configuration to your `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "snapture-sql-agent": {
+      "command": "python",
+      "args": ["/absolute/path/to/your/project/mcp_server.py"]
+    }
+  }
+}
+```
+
+**Note**: Replace `/absolute/path/to/your/project/` with the actual absolute path to your project directory.
+
+### Example Usage with MCP
+
+1. **Upload CSV data**:
+   ```
+   Use the upload_csv_data tool with your CSV content, specify a table name like "sales_data"
+   ```
+
+2. **Query the data**:
+   ```
+   Use execute_sql_query: "SELECT * FROM sales_data WHERE amount > 1000 ORDER BY date DESC LIMIT 10"
+   ```
+
+3. **Explore schema**:
+   ```
+   Use get_table_schema with table name "sales_data" to see column details
+   ```
+
 ## Structure
 ```shell
 ├── README.md
@@ -122,6 +177,7 @@ uv sync --all-groups
 ├── Makefile
 ├── pyproject.toml
 ├── uv.lock
+├── mcp_server.py                  // MCP server entry point
 ├── prompts                        // Jinja2 templates for prompts
 │   └── system.jinja2
 ├── queries                        // SQL queries for database interactions
@@ -166,6 +222,11 @@ uv sync --all-groups
 │       │       │   ├── llm.py
 │       │       │   └── tool.py
 │       │       └── state.py
+│       ├── mcp                    // MCP (Model Context Protocol) server
+│       │   ├── __init__.py
+│       │   ├── config.py
+│       │   ├── server.py
+│       │   └── tools.py
 │       ├── models                 // Data models and schemas
 │       │   ├── __init__.py
 │       │   ├── api

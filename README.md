@@ -137,6 +137,33 @@ make mcp
 uv run python mcp_server.py
 ```
 
+### Testing the MCP Server
+
+You can test the MCP server using the official MCP Inspector:
+
+```shell
+# Test with MCP Inspector (web interface)
+make mcp-inspect
+
+# Or directly with npx
+npx @modelcontextprotocol/inspector ./run_mcp_server.sh
+
+# Test in CLI mode
+make mcp-inspect-cli
+
+# Or manually test tools listing
+npx @modelcontextprotocol/inspector --cli --transport stdio --method tools/list ./run_mcp_server.sh
+```
+
+**Alternative Manual Testing:**
+```shell
+# Option 1: Using the helper script
+./run_mcp_server.sh
+
+# Option 2: Direct command for MCP Inspector
+npx @modelcontextprotocol/inspector "export PATH=\$HOME/.local/bin:\$PATH && uv run python mcp_server.py"
+```
+
 ### Claude Desktop Integration
 
 Add this configuration to your `claude_desktop_config.json`:

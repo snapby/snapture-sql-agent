@@ -4,7 +4,7 @@
 		docker_build docker_run docker_logs docker_stop \
 		generate_dependencies
 
-include .env
+-include .env
 DOCKER_IMAGE_NAME := text-to-sql-agent
 DOCKER_IMAGE_TAG := latest
 DOCKER_IMAGE := $(DOCKER_IMAGE_NAME):$(DOCKER_IMAGE_TAG)

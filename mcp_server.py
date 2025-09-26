@@ -19,7 +19,6 @@ For Claude Desktop integration, add this to your claude_desktop_config.json:
 }
 """
 
-import asyncio
 import sys
 from pathlib import Path
 
@@ -30,7 +29,7 @@ from app.mcp.config import MCPServerConfig
 from app.mcp.server import create_mcp_server
 
 
-async def main() -> None:
+def main() -> None:
     """Main entry point for the MCP server."""
     try:
         # Create server configuration
@@ -42,7 +41,7 @@ async def main() -> None:
 
         # Create and run the MCP server
         server = create_mcp_server(config)
-        await server.run()
+        server.run()
 
     except KeyboardInterrupt:
         # Handle graceful shutdown
@@ -53,4 +52,4 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

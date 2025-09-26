@@ -29,8 +29,7 @@ class SQLAgentMCPServer:
         self.config = config
         self.mcp = FastMCP(
             name=config.server_name,
-            version=config.server_version,
-            description=config.description,
+            instructions=config.description,
         )
         self.db_connection: duckdb.DuckDBPyConnection | None = None
         self.query_executor: QueryExecutorTool | None = None

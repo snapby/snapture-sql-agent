@@ -2,7 +2,7 @@
 
 import os
 import tempfile
-from typing import List
+from typing import Any, List
 from urllib.parse import urlparse
 
 import duckdb
@@ -40,9 +40,9 @@ class SQLAgentMCPServer:
 
         # Initialize chat components
         self.anthropic_client: AsyncAnthropic | None = None
-        self.chat_graph = None
-        self.tool_handler = None
-        self.prompt_store = None
+        self.chat_graph: Any = None
+        self.tool_handler: Any = None
+        self.prompt_store: Any = None
 
         # Register MCP tools
         self._register_tools()
@@ -653,6 +653,245 @@ Use execute_sql_query to query the data."""
 
             except Exception as e:
                 logger.error(f"Error in chat_with_data: {e}")
+                return [
+                    TextContent(
+                        type="text",
+                        text=f"❌ Error during chat: {str(e)}. Please make sure you have uploaded CSV data first.",
+                    )
+                ]
+
+        @self.mcp.tool(
+            name="chat_with_data_stream",
+            description="Stream a conversation about the loaded CSV data using natural language (real-time response)",
+        )
+        async def chat_with_data_stream(
+            message: str,
+            thread_id: str = "default",
+            stream_thinking: bool = False,
+        ) -> List[TextContent]:
+            """Stream chat with the data using natural language.
+
+            Args:
+                message: User's message/question about the data
+                thread_id: Thread ID for conversation context (optional)
+                stream_thinking: Whether to include thinking blocks in response
+
+            Returns:
+                AI response with streaming-like chunks collected as separate text blocks
+            """
+            streaming_chunks: List[TextContent] = []
+
+            try:
+                # Initialize chat components if needed
+                self._initialize_chat_components()
+
+                if not self.chat_graph:
+                    return [
+                        TextContent(
+                            type="text",
+                            text="❌ Chat functionality not available. Please check server configuration.",
+                        )
+                    ]
+
+                # Get table information for context
+                tables_info = ""
+                if self.db_connection:
+                    try:
+                        tables_result = self.db_connection.execute(
+                            "SHOW TABLES"
+                        ).fetchall()
+                        if tables_result:
+                            table_schemas = []
+                            for table_row in tables_result:
+                                table_name = table_row[0]
+                                schema_result = self.db_connection.execute(
+                                    f"DESCRIBE {table_name}"
+                                ).fetchall()
+                                row_count = self.db_connection.execute(
+                                    f"SELECT COUNT(*) FROM {table_name}"
+                                ).fetchone()[0]
+
+                                columns = []
+                                for col_row in schema_result:
+                                    columns.append(
+                                        f"{col_row[0]} ({col_row[1]})"
+                                    )
+
+                                table_schemas.append(
+                                    f"<table name='{table_name}' rows='{row_count}'>\n"
+                                    + "\n".join(
+                                        [
+                                            f"  <column>{col}</column>"
+                                            for col in columns
+                                        ]
+                                    )
+                                    + "\n</table>"
+                                )
+
+                            tables_info = "\n".join(table_schemas)
+                    except Exception as e:
+                        logger.warning(f"Could not get table information: {e}")
+                        tables_info = (
+                            "<no_tables>No tables available</no_tables>"
+                        )
+                else:
+                    tables_info = "<no_tables>No database connection available</no_tables>"
+
+                # Prepare input for the chat graph
+                input_data = {
+                    "messages": [{"role": "user", "content": message}],
+                    "interrupt_policy": "never",
+                }
+
+                # Configuration for the chat graph
+                config = {
+                    "configurable": {
+                        "llm": {
+                            "primary_model": "claude-sonnet-4-20250514",
+                            "secondary_model": "claude-opus-4-1-20250805",
+                            "max_tokens": 16384,
+                            "tables": tables_info,
+                        },
+                        "thread_id": thread_id,
+                    },
+                }
+
+                # Track streaming content
+                current_content = ""
+                last_yielded_length = 0
+
+                # Execute the chat graph with streaming
+                try:
+                    async for event in self.chat_graph.astream(
+                        input_data,
+                        config=config,
+                        stream_mode=["custom", "updates"],
+                    ):
+                        # Handle custom streaming events from LLM node
+                        for node_name, node_data in event.items():
+                            if node_name == "llm":
+                                # Handle custom events from LLM node (real-time streaming)
+                                if isinstance(node_data, dict):
+                                    # Stream text deltas
+                                    if "text" in node_data:
+                                        text_chunk = node_data["text"]
+                                        if (
+                                            isinstance(text_chunk, str)
+                                            and text_chunk.strip()
+                                        ):
+                                            streaming_chunks.append(
+                                                TextContent(
+                                                    type="text",
+                                                    text=text_chunk,
+                                                )
+                                            )
+
+                                    # Handle thinking blocks (optional - could be filtered out)
+                                    elif (
+                                        "thinking" in node_data
+                                        and stream_thinking
+                                    ):
+                                        thinking_chunk = node_data["thinking"]
+                                        if (
+                                            isinstance(thinking_chunk, str)
+                                            and thinking_chunk.strip()
+                                        ):
+                                            # Prefix thinking content to distinguish it
+                                            streaming_chunks.append(
+                                                TextContent(
+                                                    type="text",
+                                                    text=f"[Thinking: {thinking_chunk}]",
+                                                )
+                                            )
+
+                                    # Handle final message updates
+                                    elif (
+                                        "messages" in node_data
+                                        and node_data["messages"]
+                                    ):
+                                        latest_message = node_data["messages"][
+                                            -1
+                                        ]
+                                        if "content" in latest_message:
+                                            content = latest_message["content"]
+
+                                            # Extract text from structured content
+                                            if isinstance(content, list):
+                                                text_parts = []
+                                                for item in content:
+                                                    if (
+                                                        isinstance(item, dict)
+                                                        and "text" in item
+                                                    ):
+                                                        text_parts.append(
+                                                            item["text"]
+                                                        )
+                                                    elif isinstance(item, str):
+                                                        text_parts.append(item)
+                                                new_content = "\n".join(
+                                                    text_parts
+                                                )
+                                            else:
+                                                new_content = str(content)
+
+                                            # Store incremental updates only if content is longer than before
+                                            if (
+                                                len(new_content)
+                                                > last_yielded_length
+                                            ):
+                                                delta = new_content[
+                                                    last_yielded_length:
+                                                ]
+                                                if delta.strip():  # Only store non-empty deltas
+                                                    streaming_chunks.append(
+                                                        TextContent(
+                                                            type="text",
+                                                            text=delta,
+                                                        )
+                                                    )
+                                                    last_yielded_length = len(
+                                                        new_content
+                                                    )
+                                            current_content = new_content
+
+                    # If no streaming chunks collected but we have final content
+                    if not streaming_chunks and current_content:
+                        streaming_chunks.append(
+                            TextContent(type="text", text=current_content)
+                        )
+                    elif not streaming_chunks and not current_content:
+                        streaming_chunks.append(
+                            TextContent(
+                                type="text",
+                                text="✅ I processed your request, but didn't generate a specific response. Please try rephrasing your question.",
+                            )
+                        )
+
+                    # Return all collected streaming chunks
+                    return (
+                        streaming_chunks
+                        if streaming_chunks
+                        else [
+                            TextContent(
+                                type="text",
+                                text="✅ Chat completed successfully.",
+                            )
+                        ]
+                    )
+
+                except Exception as graph_error:
+                    logger.error(
+                        f"Error executing streaming chat graph: {graph_error}"
+                    )
+                    return [
+                        TextContent(
+                            type="text",
+                            text=f"❌ Error processing your question: {str(graph_error)}",
+                        )
+                    ]
+
+            except Exception as e:
+                logger.error(f"Error in chat_with_data_stream: {e}")
                 return [
                     TextContent(
                         type="text",

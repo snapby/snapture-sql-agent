@@ -12,7 +12,7 @@ from mcp import McpError
 from mcp.server import FastMCP
 from mcp.types import TextContent
 
-from app.mcp.config import MCPServerConfig
+from app.mcp.config import MCPServerConfig, get_mcp_config
 from app.tools.db import QueryExecutorTool
 
 
@@ -490,7 +490,7 @@ def create_mcp_server(config: MCPServerConfig) -> SQLAgentMCPServer:
 
 def main() -> None:
     """Main entry point for running the MCP server directly."""
-    config = MCPServerConfig()
+    config = get_mcp_config()
     server = create_mcp_server(config)
     server.run()
 

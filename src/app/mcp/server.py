@@ -7,13 +7,18 @@ from urllib.parse import urlparse
 
 import duckdb
 import httpx
+from anthropic import AsyncAnthropic
+from langsmith.wrappers import wrap_anthropic
 from loguru import logger
 from mcp import McpError
 from mcp.server import FastMCP
 from mcp.types import TextContent
 
+from app.graphs import create_chat_graph
 from app.mcp.config import MCPServerConfig, get_mcp_config
+from app.tools import get_tool_handler
 from app.tools.db import QueryExecutorTool
+from app.utils import PromptStore
 
 
 class SQLAgentMCPServer:
@@ -33,8 +38,45 @@ class SQLAgentMCPServer:
         self.db_connection: duckdb.DuckDBPyConnection | None = None
         self.query_executor: QueryExecutorTool | None = None
 
+        # Initialize chat components
+        self.anthropic_client: AsyncAnthropic | None = None
+        self.chat_graph = None
+        self.tool_handler = None
+        self.prompt_store = None
+
         # Register MCP tools
         self._register_tools()
+
+    def _initialize_chat_components(self) -> None:
+        """Initialize components needed for chat functionality."""
+        if self.anthropic_client is None:
+            # Initialize Anthropic client
+            self.anthropic_client = wrap_anthropic(client=AsyncAnthropic())
+
+            # Initialize database connection if needed
+            if not self.db_connection:
+                self.db_connection = duckdb.connect(":memory:")
+                self.query_executor = QueryExecutorTool(
+                    conn=self.db_connection
+                )
+
+            # Initialize tool handler
+            self.tool_handler = get_tool_handler(
+                dependencies={"conn": self.db_connection}
+            )
+
+            # Initialize prompt store
+            self.prompt_store = PromptStore(
+                prompts_dir=self.config.app_settings.paths.prompts_dir
+            )
+
+            # Create chat graph
+            self.chat_graph = create_chat_graph(
+                anthropic_client=self.anthropic_client,
+                tool_handler=self.tool_handler,
+                prompt_store=self.prompt_store,
+                checkpointer=None,  # No checkpointer for MCP server
+            )
 
     def _register_tools(self) -> None:
         """Register all MCP tools."""
@@ -467,6 +509,154 @@ Use execute_sql_query to query the data."""
                 return [
                     TextContent(
                         type="text", text=f"Error listing tables: {str(e)}"
+                    )
+                ]
+
+        @self.mcp.tool(
+            name="chat_with_data",
+            description="Have a conversation about the loaded CSV data using natural language",
+        )
+        async def chat_with_data(
+            message: str, thread_id: str = "default"
+        ) -> List[TextContent]:
+            """Chat with the data using natural language.
+
+            Args:
+                message: User's message/question about the data
+                thread_id: Thread ID for conversation context (optional)
+
+            Returns:
+                AI response about the data
+            """
+            try:
+                # Initialize chat components if needed
+                self._initialize_chat_components()
+
+                if not self.chat_graph:
+                    return [
+                        TextContent(
+                            type="text",
+                            text="❌ Chat functionality not available. Please check server configuration.",
+                        )
+                    ]
+
+                # Get table information for context
+                tables_info = ""
+                if self.db_connection:
+                    try:
+                        tables_result = self.db_connection.execute(
+                            "SHOW TABLES"
+                        ).fetchall()
+                        if tables_result:
+                            table_schemas = []
+                            for table_row in tables_result:
+                                table_name = table_row[0]
+                                schema_result = self.db_connection.execute(
+                                    f"DESCRIBE {table_name}"
+                                ).fetchall()
+                                row_count = self.db_connection.execute(
+                                    f"SELECT COUNT(*) FROM {table_name}"
+                                ).fetchone()[0]
+
+                                columns = []
+                                for col_row in schema_result:
+                                    columns.append(
+                                        f"{col_row[0]} ({col_row[1]})"
+                                    )
+
+                                table_schemas.append(
+                                    f"<table name='{table_name}' rows='{row_count}'>\n"
+                                    + "\n".join(
+                                        [
+                                            f"  <column>{col}</column>"
+                                            for col in columns
+                                        ]
+                                    )
+                                    + "\n</table>"
+                                )
+
+                            tables_info = "\n".join(table_schemas)
+                    except Exception as e:
+                        logger.warning(f"Could not get table information: {e}")
+                        tables_info = (
+                            "<no_tables>No tables available</no_tables>"
+                        )
+                else:
+                    tables_info = "<no_tables>No database connection available</no_tables>"
+
+                # Prepare input for the chat graph
+                input_data = {
+                    "messages": [{"role": "user", "content": message}],
+                    "interrupt_policy": "never",
+                }
+
+                # Configuration for the chat graph
+                config = {
+                    "configurable": {
+                        "llm": {
+                            "primary_model": "claude-sonnet-4-20250514",
+                            "secondary_model": "claude-opus-4-1-20250805",
+                            "max_tokens": 16384,
+                            "tables": tables_info,
+                        },
+                        "thread_id": thread_id,
+                    },
+                }
+
+                # Execute the chat graph
+                final_message = None
+                try:
+                    async for event in self.chat_graph.astream(
+                        input_data, config=config, stream_mode=["updates"]
+                    ):
+                        # Get the last message from the graph execution
+                        if "messages" in event.get("llm", {}):
+                            messages = event["llm"]["messages"]
+                            if messages:
+                                final_message = messages[-1]
+                        elif "__end__" in event:
+                            # Extract final state
+                            final_state = event["__end__"]
+                            if (
+                                "messages" in final_state
+                                and final_state["messages"]
+                            ):
+                                final_message = final_state["messages"][-1]
+
+                except Exception as graph_error:
+                    logger.error(f"Error executing chat graph: {graph_error}")
+                    return [
+                        TextContent(
+                            type="text",
+                            text=f"❌ Error processing your question: {str(graph_error)}",
+                        )
+                    ]
+
+                # Extract response content
+                if final_message and "content" in final_message:
+                    response_content = final_message["content"]
+                    if isinstance(response_content, list):
+                        # Handle structured content (e.g., text blocks)
+                        text_parts = []
+                        for item in response_content:
+                            if isinstance(item, dict) and "text" in item:
+                                text_parts.append(item["text"])
+                            elif isinstance(item, str):
+                                text_parts.append(item)
+                        response_text = "\n".join(text_parts)
+                    else:
+                        response_text = str(response_content)
+                else:
+                    response_text = "✅ I processed your request, but didn't generate a specific response. Please try rephrasing your question."
+
+                return [TextContent(type="text", text=response_text)]
+
+            except Exception as e:
+                logger.error(f"Error in chat_with_data: {e}")
+                return [
+                    TextContent(
+                        type="text",
+                        text=f"❌ Error during chat: {str(e)}. Please make sure you have uploaded CSV data first.",
                     )
                 ]
 

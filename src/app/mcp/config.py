@@ -1,8 +1,10 @@
 """MCP server configuration."""
 
-from typing import Any
+from functools import lru_cache
 
 from pydantic import BaseModel, Field
+
+from app.config import Settings, get_settings
 
 
 class MCPServerConfig(BaseModel):
@@ -19,9 +21,9 @@ class MCPServerConfig(BaseModel):
         description="Description of the MCP server",
     )
 
-    # Database connection settings (will be passed from main app settings)
-    database_config: dict[str, Any] = Field(
-        default_factory=dict, description="Database configuration settings"
+    # Main application settings (loaded from .env file)
+    app_settings: Settings = Field(
+        description="Main application settings including database, API keys, etc."
     )
 
     # CSV upload directory
@@ -40,3 +42,16 @@ class MCPServerConfig(BaseModel):
         """Pydantic config."""
 
         extra = "forbid"
+
+
+@lru_cache(maxsize=1)
+def get_mcp_config() -> MCPServerConfig:
+    """Get MCP server configuration with main application settings."""
+    app_settings = get_settings()
+
+    return MCPServerConfig(
+        app_settings=app_settings,
+        server_name="snapture-sql-agent",
+        server_version="1.0.0",
+        description="MCP server for Text-to-SQL agent with DuckDB and CSV integration",
+    )

@@ -25,19 +25,15 @@ from pathlib import Path
 # Add the src directory to Python path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
-from app.mcp.config import MCPServerConfig
+from app.mcp.config import get_mcp_config
 from app.mcp.server import create_mcp_server
 
 
 def main() -> None:
     """Main entry point for the MCP server."""
     try:
-        # Create server configuration
-        config = MCPServerConfig(
-            server_name="snapture-sql-agent",
-            server_version="1.0.0",
-            description="MCP server for Text-to-SQL agent with DuckDB and CSV integration",
-        )
+        # Get server configuration (includes .env file loading)
+        config = get_mcp_config()
 
         # Create and run the MCP server
         server = create_mcp_server(config)

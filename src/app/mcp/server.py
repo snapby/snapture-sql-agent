@@ -273,10 +273,8 @@ async def chat_with_data(
     """Have a conversational chat about your data using natural language."""
     _initialize_chat_components()
 
-    if not _query_executor:
-        raise Exception(
-            "Database not initialized. Please upload CSV data first."
-        )
+    # Ensure query executor is available
+    _ = _get_query_executor()  # Initialize if needed
 
     try:
         # Execute the chat graph
@@ -313,10 +311,8 @@ async def chat_with_data_stream(
     """Have a conversational chat about your data with streaming response chunks."""
     _initialize_chat_components()
 
-    if not _query_executor:
-        raise Exception(
-            "Database not initialized. Please upload CSV data first."
-        )
+    # Ensure query executor is available
+    _ = _get_query_executor()  # Initialize if needed
 
     try:
         streaming_chunks = []

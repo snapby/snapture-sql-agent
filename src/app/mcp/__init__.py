@@ -3,8 +3,10 @@
 This module provides MCP server functionality that exposes the SQL agent's
 capabilities as standardized MCP tools, allowing AI applications like Claude Desktop
 to connect and use the agent's text-to-SQL capabilities.
+
+Uses FastMCP 2.0 for modern MCP server implementation.
 """
 
-from .server import create_mcp_server
+from .server import mcp
 
-__all__ = ["create_mcp_server"]
+__all__ = ["mcp"]

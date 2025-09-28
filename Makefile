@@ -97,22 +97,22 @@ docker_shell:
 	docker exec -it $(DOCKER_CONTAINER_NAME) /bin/bash
 
 # ------------------------------------------------------------------------------
-# MCP Server
+# MCP Server (FastMCP 2.0)
 # ------------------------------------------------------------------------------
 
 # Run the MCP server in STDIO mode (default, for MCP client integration)
 mcp:
 	uv run python mcp_server.py
 
-# Run MCP server with HTTP mode request (falls back to stdio + instructions)
+# Run MCP server in HTTP mode with web interface (now fully supported!)
 mcp-http:
 	uv run python mcp_server.py --http
 
-# Run MCP server with HTTP mode on custom port (falls back to stdio + instructions)  
+# Run MCP server in HTTP mode on custom port
 mcp-http-port:
 	uv run python mcp_server.py --http --port 8080
 
-# Run MCP server with HTTP mode on public IP (falls back to stdio + instructions)
+# Run MCP server in HTTP mode accessible from any IP
 mcp-http-public:
 	uv run python mcp_server.py --http --host 0.0.0.0 --port 3000
 
@@ -134,6 +134,22 @@ mcp-list-tools:
 	@timeout 10s ./run_mcp_server.sh &
 	@sleep 2
 	@echo "Server started. Use MCP Inspector to connect."
+
+# ------------------------------------------------------------------------------
+# FastMCP CLI Commands
+# ------------------------------------------------------------------------------
+
+# Run MCP server using FastMCP CLI (STDIO mode)
+mcp-cli-stdio:
+	uv run fastmcp run mcp_server.py:mcp --transport stdio
+
+# Run MCP server using FastMCP CLI (HTTP mode)  
+mcp-cli-http:
+	uv run fastmcp run mcp_server.py:mcp --transport http --port 8080
+
+# Show FastMCP version
+mcp-version:
+	uv run fastmcp version
 
 # ------------------------------------------------------------------------------
 # Python dependencies

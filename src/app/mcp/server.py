@@ -1,195 +1,166 @@
-"""MCP server implementation for the Text-to-SQL Agent."""
+"""MCP server implementation for the Text-to-SQL Agent using FastMCP 2.0."""
 
 import os
 import tempfile
-from typing import Any, List
+from typing import Annotated, Any, List
 from urllib.parse import urlparse
 
 import duckdb
 import httpx
 from anthropic import AsyncAnthropic
+from fastmcp import FastMCP
 from langsmith.wrappers import wrap_anthropic
 from loguru import logger
-from mcp import McpError
-from mcp.server import FastMCP
-from mcp.types import ErrorData, TextContent
+from pydantic import Field
 
 from app.graphs import create_chat_graph
-from app.mcp.config import MCPServerConfig, get_mcp_config
+from app.mcp.config import get_mcp_config
 from app.tools import get_tool_handler
 from app.tools.db import QueryExecutorTool
 from app.utils import PromptStore
 
+# Initialize the FastMCP server
+mcp = FastMCP("Snapture SQL Agent")
 
-class SQLAgentMCPServer:
-    """MCP server that exposes SQL agent functionality."""
+# Global state for database connections and components
+_db_connection: duckdb.DuckDBPyConnection | None = None
+_query_executor: QueryExecutorTool | None = None
+_anthropic_client: AsyncAnthropic | None = None
+_chat_graph: Any = None
+_tool_handler: Any = None
+_prompt_store: Any = None
 
-    def __init__(self, config: MCPServerConfig):
-        """Initialize the MCP server.
 
-        Args:
-            config: Server configuration
-        """
-        self.config = config
-        self.mcp = FastMCP(
-            name=config.server_name,
-            instructions=config.description,
+def _get_db_connection() -> duckdb.DuckDBPyConnection:
+    """Get or create database connection."""
+    global _db_connection
+    if _db_connection is None:
+        _db_connection = duckdb.connect(":memory:")
+    return _db_connection
+
+
+def _get_query_executor() -> QueryExecutorTool:
+    """Get or create query executor."""
+    global _query_executor
+    if _query_executor is None:
+        _query_executor = QueryExecutorTool(conn=_get_db_connection())
+    return _query_executor
+
+
+def _initialize_chat_components() -> None:
+    """Initialize components needed for chat functionality."""
+    global _anthropic_client, _chat_graph, _tool_handler, _prompt_store
+
+    if _anthropic_client is None:
+        # Initialize Anthropic client
+        _anthropic_client = wrap_anthropic(client=AsyncAnthropic())
+
+        # Initialize tool handler
+        _tool_handler = get_tool_handler(
+            dependencies={"conn": _get_db_connection()}
         )
-        self.db_connection: duckdb.DuckDBPyConnection | None = None
-        self.query_executor: QueryExecutorTool | None = None
 
-        # Initialize chat components
-        self.anthropic_client: AsyncAnthropic | None = None
-        self.chat_graph: Any = None
-        self.tool_handler: Any = None
-        self.prompt_store: Any = None
+        # Get config for paths
+        config = get_mcp_config()
 
-        # Register MCP tools
-        self._register_tools()
-
-    def _initialize_chat_components(self) -> None:
-        """Initialize components needed for chat functionality."""
-        if self.anthropic_client is None:
-            # Initialize Anthropic client
-            self.anthropic_client = wrap_anthropic(client=AsyncAnthropic())
-
-            # Initialize database connection if needed
-            if not self.db_connection:
-                self.db_connection = duckdb.connect(":memory:")
-                self.query_executor = QueryExecutorTool(
-                    conn=self.db_connection
-                )
-
-            # Initialize tool handler
-            self.tool_handler = get_tool_handler(
-                dependencies={"conn": self.db_connection}
-            )
-
-            # Initialize prompt store
-            self.prompt_store = PromptStore(
-                prompts_dir=self.config.app_settings.paths.prompts_dir
-            )
-
-            # Create chat graph
-            self.chat_graph = create_chat_graph(
-                anthropic_client=self.anthropic_client,
-                tool_handler=self.tool_handler,
-                prompt_store=self.prompt_store,
-                checkpointer=None,  # No checkpointer for MCP server
-            )
-
-    def _register_tools(self) -> None:
-        """Register all MCP tools."""
-
-        @self.mcp.tool(
-            name="execute_sql_query",
-            description="Execute SQL query against the DuckDB database containing uploaded CSV data",
+        # Initialize prompt store
+        _prompt_store = PromptStore(
+            prompts_dir=config.app_settings.paths.prompts_dir
         )
-        async def execute_sql_query(
-            query: str, purpose: str = "final"
-        ) -> List[TextContent]:
-            """Execute a SQL query.
 
-            Args:
-                query: SQL query to execute
-                purpose: Purpose of query - 'intermediate' for exploration, 'final' for results
-
-            Returns:
-                Query results as text content
-            """
-            if not self.query_executor:
-                raise McpError(
-                    ErrorData(
-                        code="DATABASE_NOT_INITIALIZED",
-                        message="Database not initialized. Please upload CSV data first."
-                    )
-                )
-
-            try:
-                # Create a mock state for the query executor
-                mock_state = type(
-                    "MockState", (), {"interrupt_policy": "never"}
-                )()
-
-                # Create input data for the tool
-                input_data = type(
-                    "QueryInput", (), {"query": query, "purpose": purpose}
-                )()
-
-                result = await self.query_executor(input_data, mock_state)
-
-                return [
-                    TextContent(
-                        type="text", text=f"SQL Query Results:\n{result}"
-                    )
-                ]
-
-            except Exception as e:
-                logger.error(f"Error executing SQL query: {e}")
-                return [
-                    TextContent(
-                        type="text", text=f"Error executing query: {str(e)}"
-                    )
-                ]
-
-        @self.mcp.tool(
-            name="upload_csv_data",
-            description="Upload CSV data and make it available for querying",
+        # Create chat graph
+        _chat_graph = create_chat_graph(
+            anthropic_client=_anthropic_client,
+            tool_handler=_tool_handler,
+            prompt_store=_prompt_store,
+            checkpointer=None,  # No checkpointer for MCP server
         )
-        async def upload_csv_data(
-            csv_content: str, table_name: str, description: str = ""
-        ) -> List[TextContent]:
-            """Upload CSV data to DuckDB.
 
-            Args:
-                csv_content: CSV data as string
-                table_name: Name for the table to create
-                description: Optional description of the data
 
-            Returns:
-                Success message with table schema information
-            """
-            try:
-                # Initialize database connection if needed
-                if not self.db_connection:
-                    self.db_connection = duckdb.connect(":memory:")
-                    self.query_executor = QueryExecutorTool(
-                        conn=self.db_connection
-                    )
+@mcp.tool
+async def execute_sql_query(
+    query: Annotated[
+        str,
+        Field(
+            description="SQL query to execute against the uploaded CSV data"
+        ),
+    ],
+    purpose: Annotated[
+        str,
+        Field(
+            description="Purpose of query: 'intermediate' for exploration, 'final' for results",
+            default="final",
+        ),
+    ],
+) -> str:
+    """Execute SQL query against the DuckDB database containing uploaded CSV data."""
+    query_executor = _get_query_executor()
 
-                # Write CSV content to temporary file
-                import os
-                import tempfile
+    try:
+        # Create a mock state for the query executor
+        mock_state = type("MockState", (), {"interrupt_policy": "never"})()
 
-                with tempfile.NamedTemporaryFile(
-                    mode="w", suffix=".csv", delete=False
-                ) as f:
-                    f.write(csv_content)
-                    temp_file = f.name
+        # Create input data for the tool
+        input_data = type(
+            "QueryInput", (), {"query": query, "purpose": purpose}
+        )()
 
-                try:
-                    # Load CSV into DuckDB
-                    self.db_connection.execute(f"""
-                        CREATE OR REPLACE TABLE {table_name} AS 
-                        SELECT * FROM read_csv('{temp_file}', auto_detect=true, header=true)
-                    """)
+        result = await query_executor(input_data, mock_state)
+        return f"SQL Query Results:\\n{result}"
 
-                    # Get table schema
-                    schema_result = self.db_connection.execute(
-                        f"DESCRIBE {table_name}"
-                    ).fetchall()
-                    schema_info = []
-                    for row in schema_result:
-                        schema_info.append(f"  {row[0]}: {row[1]}")
+    except Exception as e:
+        logger.error(f"Error executing SQL query: {e}")
+        raise Exception(f"Error executing query: {str(e)}")
 
-                    schema_text = "\n".join(schema_info)
 
-                    # Get row count
-                    row_count = self.db_connection.execute(
-                        f"SELECT COUNT(*) FROM {table_name}"
-                    ).fetchone()[0]
+@mcp.tool
+async def upload_csv_data(
+    csv_content: Annotated[
+        str, Field(description="CSV data as string content")
+    ],
+    table_name: Annotated[
+        str,
+        Field(description="Name for the table to create from the CSV data"),
+    ],
+    description: Annotated[
+        str, Field(description="Optional description of the data", default="")
+    ] = "",
+) -> str:
+    """Upload CSV data to DuckDB and make it available for querying."""
+    try:
+        db_connection = _get_db_connection()
 
-                    success_message = f"""CSV data successfully uploaded!
+        # Write CSV content to temporary file
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".csv", delete=False
+        ) as f:
+            f.write(csv_content)
+            temp_file = f.name
+
+        try:
+            # Load CSV into DuckDB
+            db_connection.execute(f"""
+                CREATE OR REPLACE TABLE {table_name} AS 
+                SELECT * FROM read_csv('{temp_file}', auto_detect=true, header=true)
+            """)
+
+            # Get table schema
+            schema_result = db_connection.execute(
+                f"DESCRIBE {table_name}"
+            ).fetchall()
+            schema_info = []
+            for row in schema_result:
+                schema_info.append(f"  {row[0]}: {row[1]}")
+
+            schema_text = "\\n".join(schema_info)
+
+            # Get row count
+            row_count_result = db_connection.execute(
+                f"SELECT COUNT(*) FROM {table_name}"
+            ).fetchone()
+            row_count = row_count_result[0] if row_count_result else 0
+
+            return f"""CSV data successfully uploaded!
 
 Table: {table_name}
 Rows: {row_count}
@@ -198,758 +169,212 @@ Description: {description or "No description provided"}
 Schema:
 {schema_text}
 
-You can now query this data using execute_sql_query tool."""
+The data is now ready for SQL queries. Use the execute_sql_query tool to analyze it!"""
 
-                    return [TextContent(type="text", text=success_message)]
+        finally:
+            # Clean up temp file
+            os.unlink(temp_file)
 
-                finally:
-                    # Clean up temporary file
-                    if os.path.exists(temp_file):
-                        os.unlink(temp_file)
+    except Exception as e:
+        logger.error(f"Error uploading CSV data: {e}")
+        raise Exception(f"Error uploading CSV data: {str(e)}")
 
-            except Exception as e:
-                logger.error(f"Error uploading CSV data: {e}")
-                return [
-                    TextContent(
-                        type="text", text=f"Error uploading CSV data: {str(e)}"
-                    )
-                ]
 
-        @self.mcp.tool(
-            name="upload_csv_from_url",
-            description="Download CSV file from URL and upload it to DuckDB table",
+@mcp.tool
+async def upload_csv_from_url(
+    url: Annotated[str, Field(description="URL to fetch CSV data from")],
+    table_name: Annotated[
+        str,
+        Field(description="Name for the table to create from the CSV data"),
+    ],
+    description: Annotated[
+        str, Field(description="Optional description of the data", default="")
+    ] = "",
+) -> str:
+    """Fetch CSV data from a URL and upload it to DuckDB."""
+    try:
+        # Validate URL
+        parsed_url = urlparse(url)
+        if not parsed_url.scheme or not parsed_url.netloc:
+            raise Exception("Invalid URL provided")
+
+        # Fetch CSV data
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            csv_content = response.text
+
+        # Use the upload_csv_data function
+        result = await upload_csv_data(
+            csv_content, table_name, f"Data from {url}. {description}"
         )
-        async def upload_csv_from_url(
-            csv_url: str, table_name: str, description: str = ""
-        ) -> List[TextContent]:
-            """Download CSV from URL and upload to DuckDB.
+        return result
 
-            Args:
-                csv_url: URL of the CSV file to download
-                table_name: Name for the table to create
-                description: Optional description of the data
+    except httpx.HTTPError as e:
+        logger.error(f"HTTP error fetching CSV from URL: {e}")
+        raise Exception(f"Error fetching CSV from URL: {str(e)}")
+    except Exception as e:
+        logger.error(f"Error uploading CSV from URL: {e}")
+        raise Exception(f"Error uploading CSV from URL: {str(e)}")
 
-            Returns:
-                Success message with table schema information
-            """
-            try:
-                # Initialize database connection if needed
-                if not self.db_connection:
-                    self.db_connection = duckdb.connect(":memory:")
-                    self.query_executor = QueryExecutorTool(
-                        conn=self.db_connection
-                    )
 
-                # Validate URL
-                parsed_url = urlparse(csv_url)
-                if not all([parsed_url.scheme, parsed_url.netloc]):
-                    return [
-                        TextContent(
-                            type="text",
-                            text=f"❌ Invalid URL format: {csv_url}. Please provide a valid HTTP/HTTPS URL.",
-                        )
-                    ]
+@mcp.tool
+async def get_database_schema() -> str:
+    """Get the current database schema showing all available tables and their structures."""
+    try:
+        db_connection = _get_db_connection()
 
-                if parsed_url.scheme not in ["http", "https"]:
-                    return [
-                        TextContent(
-                            type="text",
-                            text=f"❌ Unsupported URL scheme: {parsed_url.scheme}. Only HTTP and HTTPS are supported.",
-                        )
-                    ]
+        # Get all tables
+        tables_result = db_connection.execute("SHOW TABLES").fetchall()
 
-                logger.info(f"Downloading CSV from URL: {csv_url}")
+        if not tables_result:
+            return "No tables found in the database. Upload CSV data first using the upload_csv_data tool."
 
-                # Download CSV file with timeout and size limits
-                async with httpx.AsyncClient(
-                    timeout=httpx.Timeout(30.0), follow_redirects=True
-                ) as client:
-                    try:
-                        response = await client.get(csv_url)
-                        response.raise_for_status()
+        schema_info = ["Database Schema:", "=" * 50]
 
-                        # Check content type (optional warning)
-                        content_type = response.headers.get(
-                            "content-type", ""
-                        ).lower()
-                        if (
-                            "text/csv" not in content_type
-                            and "application/csv" not in content_type
-                        ):
-                            logger.warning(
-                                f"URL does not appear to be CSV (content-type: {content_type})"
-                            )
+        for table_row in tables_result:
+            table_name = table_row[0]
+            schema_info.append(f"\\nTable: {table_name}")
+            schema_info.append("-" * (len(table_name) + 7))
 
-                        # Check file size limit (100MB default from config)
-                        content_length = response.headers.get("content-length")
-                        if (
-                            content_length
-                            and int(content_length) > self.config.max_file_size
-                        ):
-                            return [
-                                TextContent(
-                                    type="text",
-                                    text=f"❌ File too large: {content_length} bytes. Maximum allowed: {self.config.max_file_size} bytes.",
-                                )
-                            ]
+            # Get table schema
+            table_schema = db_connection.execute(
+                f"DESCRIBE {table_name}"
+            ).fetchall()
+            for col_row in table_schema:
+                schema_info.append(f"  {col_row[0]}: {col_row[1]}")
 
-                        csv_content = response.text
+            # Get row count
+            row_count_result = db_connection.execute(
+                f"SELECT COUNT(*) FROM {table_name}"
+            ).fetchone()
+            row_count = row_count_result[0] if row_count_result else 0
+            schema_info.append(f"  Rows: {row_count}")
 
-                        # Basic CSV validation - check if it has at least some commas or tabs
-                        if not csv_content.strip():
-                            return [
-                                TextContent(
-                                    type="text",
-                                    text="❌ Downloaded file is empty.",
-                                )
-                            ]
+        return "\\n".join(schema_info)
 
-                        # Check if it looks like CSV (has commas or tabs in first few lines)
-                        first_lines = csv_content[:1000]  # First 1KB
-                        if "," not in first_lines and "\t" not in first_lines:
-                            return [
-                                TextContent(
-                                    type="text",
-                                    text="⚠️ Downloaded content doesn't appear to be CSV format (no commas or tabs detected). Proceeding anyway...",
-                                )
-                            ]
+    except Exception as e:
+        logger.error(f"Error getting database schema: {e}")
+        raise Exception(f"Error getting database schema: {str(e)}")
 
-                    except httpx.HTTPStatusError as e:
-                        return [
-                            TextContent(
-                                type="text",
-                                text=f"❌ HTTP error downloading file: {e.response.status_code} {e.response.reason_phrase}",
-                            )
-                        ]
-                    except httpx.RequestError as e:
-                        return [
-                            TextContent(
-                                type="text",
-                                text=f"❌ Network error downloading file: {str(e)}",
-                            )
-                        ]
 
-                # Write CSV content to temporary file
-                with tempfile.NamedTemporaryFile(
-                    mode="w", suffix=".csv", delete=False, encoding="utf-8"
-                ) as f:
-                    f.write(csv_content)
-                    temp_file = f.name
+@mcp.tool
+async def chat_with_data(
+    question: Annotated[
+        str, Field(description="Your question about the data")
+    ],
+) -> str:
+    """Have a conversational chat about your data using natural language."""
+    _initialize_chat_components()
 
-                try:
-                    # Load CSV into DuckDB
-                    self.db_connection.execute(f"""
-                        CREATE OR REPLACE TABLE {table_name} AS 
-                        SELECT * FROM read_csv('{temp_file}', auto_detect=true, header=true)
-                    """)
-
-                    # Get table schema
-                    schema_result = self.db_connection.execute(
-                        f"DESCRIBE {table_name}"
-                    ).fetchall()
-                    schema_info = []
-                    for row in schema_result:
-                        schema_info.append(f"  {row[0]}: {row[1]}")
-
-                    schema_text = "\\n".join(schema_info)
-
-                    # Get row count
-                    row_count = self.db_connection.execute(
-                        f"SELECT COUNT(*) FROM {table_name}"
-                    ).fetchone()[0]
-
-                    # Get file size for reporting
-                    file_size_kb = len(csv_content.encode("utf-8")) / 1024
-
-                    success_message = f"""✅ CSV file successfully downloaded and uploaded!
-
-Source URL: {csv_url}
-Table: {table_name}
-File size: {file_size_kb:.1f} KB
-Rows loaded: {row_count}
-Description: {description or "No description provided"}
-
-Schema:
-{schema_text}
-
-The table is now available for querying. Use execute_sql_query to run SQL queries against this data."""
-
-                    return [TextContent(type="text", text=success_message)]
-
-                finally:
-                    # Clean up temporary file
-                    if os.path.exists(temp_file):
-                        os.unlink(temp_file)
-
-            except Exception as e:
-                logger.error(f"Error uploading CSV from URL: {e}")
-                return [
-                    TextContent(
-                        type="text",
-                        text=f"❌ Error uploading CSV from URL: {str(e)}",
-                    )
-                ]
-
-        @self.mcp.tool(
-            name="get_table_schema",
-            description="Get schema information for available tables",
+    if not _query_executor:
+        raise Exception(
+            "Database not initialized. Please upload CSV data first."
         )
-        async def get_table_schema(table_name: str = "") -> List[TextContent]:
-            """Get schema information for tables.
 
-            Args:
-                table_name: Specific table name, or empty to get all tables
-
-            Returns:
-                Schema information
-            """
-            if not self.db_connection:
-                return [
-                    TextContent(
-                        type="text",
-                        text="No database connection. Please upload CSV data first.",
-                    )
-                ]
-
-            try:
-                if table_name:
-                    # Get schema for specific table
-                    schema_result = self.db_connection.execute(
-                        f"DESCRIBE {table_name}"
-                    ).fetchall()
-                    row_count = self.db_connection.execute(
-                        f"SELECT COUNT(*) FROM {table_name}"
-                    ).fetchone()[0]
-
-                    schema_info = []
-                    for row in schema_result:
-                        schema_info.append(f"  {row[0]}: {row[1]}")
-
-                    schema_text = f"""Table: {table_name}
-Rows: {row_count}
-
-Schema:
-{chr(10).join(schema_info)}"""
-                else:
-                    # Get all tables
-                    tables_result = self.db_connection.execute(
-                        "SHOW TABLES"
-                    ).fetchall()
-                    if not tables_result:
-                        schema_text = "No tables available. Please upload CSV data first."
-                    else:
-                        table_info = []
-                        for table_row in tables_result:
-                            table = table_row[0]
-                            row_count = self.db_connection.execute(
-                                f"SELECT COUNT(*) FROM {table}"
-                            ).fetchone()[0]
-                            table_info.append(f"  {table} ({row_count} rows)")
-
-                        schema_text = f"""Available tables:
-{chr(10).join(table_info)}
-
-Use get_table_schema with a specific table name for detailed schema information."""
-
-                return [TextContent(type="text", text=schema_text)]
-
-            except Exception as e:
-                logger.error(f"Error getting table schema: {e}")
-                return [
-                    TextContent(
-                        type="text", text=f"Error getting schema: {str(e)}"
-                    )
-                ]
-
-        @self.mcp.tool(
-            name="list_available_tables",
-            description="List all available tables in the database",
+    try:
+        # Execute the chat graph
+        result = await _chat_graph.ainvoke(
+            {"question": question}, {"recursion_limit": 50}
         )
-        async def list_available_tables() -> List[TextContent]:
-            """List all available tables.
 
-            Returns:
-                List of available tables
-            """
-            if not self.db_connection:
-                return [
-                    TextContent(
-                        type="text",
-                        text="No database connection. Please upload CSV data first.",
-                    )
-                ]
+        # Extract the response
+        if isinstance(result, dict) and "response" in result:
+            response = result["response"]
+            if hasattr(response, "content"):
+                return str(response.content)
+            return str(response)
 
-            try:
-                tables_result = self.db_connection.execute(
-                    "SHOW TABLES"
-                ).fetchall()
-                if not tables_result:
-                    return [
-                        TextContent(
-                            type="text",
-                            text="No tables available. Please upload CSV data using upload_csv_data tool.",
-                        )
-                    ]
+        return str(result)
 
-                table_list = []
-                for table_row in tables_result:
-                    table_name = table_row[0]
-                    row_count = self.db_connection.execute(
-                        f"SELECT COUNT(*) FROM {table_name}"
-                    ).fetchone()[0]
-                    table_list.append(f"• {table_name} ({row_count} rows)")
+    except Exception as e:
+        logger.error(f"Error in chat_with_data: {e}")
+        raise Exception(f"Error processing your question: {str(e)}")
 
-                tables_text = f"""Available tables:
-{chr(10).join(table_list)}
 
-Use get_table_schema to see detailed schema information for any table.
-Use execute_sql_query to query the data."""
+@mcp.tool
+async def chat_with_data_stream(
+    question: Annotated[
+        str, Field(description="Your question about the data")
+    ],
+    include_thinking: Annotated[
+        bool,
+        Field(
+            description="Whether to include AI thinking process", default=False
+        ),
+    ] = False,
+) -> List[str]:
+    """Have a conversational chat about your data with streaming response chunks."""
+    _initialize_chat_components()
 
-                return [TextContent(type="text", text=tables_text)]
-
-            except Exception as e:
-                logger.error(f"Error listing tables: {e}")
-                return [
-                    TextContent(
-                        type="text", text=f"Error listing tables: {str(e)}"
-                    )
-                ]
-
-        @self.mcp.tool(
-            name="chat_with_data",
-            description="Have a conversation about the loaded CSV data using natural language",
+    if not _query_executor:
+        raise Exception(
+            "Database not initialized. Please upload CSV data first."
         )
-        async def chat_with_data(
-            message: str, thread_id: str = "default"
-        ) -> List[TextContent]:
-            """Chat with the data using natural language.
 
-            Args:
-                message: User's message/question about the data
-                thread_id: Thread ID for conversation context (optional)
+    try:
+        streaming_chunks = []
+        current_content = ""
+        last_yielded_length = 0
 
-            Returns:
-                AI response about the data
-            """
-            try:
-                # Initialize chat components if needed
-                self._initialize_chat_components()
+        # Stream from the chat graph
+        async for event in _chat_graph.astream(
+            {"question": question}, {"recursion_limit": 50}
+        ):
+            if isinstance(event, dict):
+                for node_name, node_data in event.items():
+                    if node_name == "generate" and isinstance(node_data, dict):
+                        if "response" in node_data:
+                            response = node_data["response"]
 
-                if not self.chat_graph:
-                    return [
-                        TextContent(
-                            type="text",
-                            text="❌ Chat functionality not available. Please check server configuration.",
-                        )
-                    ]
+                            # Handle different response types
+                            if hasattr(response, "content"):
+                                new_content = str(response.content)
+                            elif isinstance(response, str):
+                                new_content = response
+                            else:
+                                new_content = str(response)
 
-                # Get table information for context
-                tables_info = ""
-                if self.db_connection:
-                    try:
-                        tables_result = self.db_connection.execute(
-                            "SHOW TABLES"
-                        ).fetchall()
-                        if tables_result:
-                            table_schemas = []
-                            for table_row in tables_result:
-                                table_name = table_row[0]
-                                schema_result = self.db_connection.execute(
-                                    f"DESCRIBE {table_name}"
-                                ).fetchall()
-                                row_count = self.db_connection.execute(
-                                    f"SELECT COUNT(*) FROM {table_name}"
-                                ).fetchone()[0]
+                            # Check for new content to yield
+                            if len(new_content) > last_yielded_length:
+                                delta = new_content[last_yielded_length:]
+                                if delta.strip():  # Only add non-empty chunks
+                                    streaming_chunks.append(delta)
+                                    last_yielded_length = len(new_content)
+                            current_content = new_content
 
-                                columns = []
-                                for col_row in schema_result:
-                                    columns.append(
-                                        f"{col_row[0]} ({col_row[1]})"
-                                    )
-
-                                table_schemas.append(
-                                    f"<table name='{table_name}' rows='{row_count}'>\n"
-                                    + "\n".join(
-                                        [
-                                            f"  <column>{col}</column>"
-                                            for col in columns
-                                        ]
-                                    )
-                                    + "\n</table>"
-                                )
-
-                            tables_info = "\n".join(table_schemas)
-                    except Exception as e:
-                        logger.warning(f"Could not get table information: {e}")
-                        tables_info = (
-                            "<no_tables>No tables available</no_tables>"
-                        )
-                else:
-                    tables_info = "<no_tables>No database connection available</no_tables>"
-
-                # Prepare input for the chat graph
-                input_data = {
-                    "messages": [{"role": "user", "content": message}],
-                    "interrupt_policy": "never",
-                }
-
-                # Configuration for the chat graph
-                config = {
-                    "configurable": {
-                        "llm": {
-                            "primary_model": "claude-sonnet-4-20250514",
-                            "secondary_model": "claude-opus-4-1-20250805",
-                            "max_tokens": 16384,
-                            "tables": tables_info,
-                        },
-                        "thread_id": thread_id,
-                    },
-                }
-
-                # Execute the chat graph
-                final_message = None
-                try:
-                    async for event in self.chat_graph.astream(
-                        input_data, config=config, stream_mode=["updates"]
-                    ):
-                        # Get the last message from the graph execution
-                        if "messages" in event.get("llm", {}):
-                            messages = event["llm"]["messages"]
-                            if messages:
-                                final_message = messages[-1]
-                        elif "__end__" in event:
-                            # Extract final state
-                            final_state = event["__end__"]
-                            if (
-                                "messages" in final_state
-                                and final_state["messages"]
-                            ):
-                                final_message = final_state["messages"][-1]
-
-                except Exception as graph_error:
-                    logger.error(f"Error executing chat graph: {graph_error}")
-                    return [
-                        TextContent(
-                            type="text",
-                            text=f"❌ Error processing your question: {str(graph_error)}",
-                        )
-                    ]
-
-                # Extract response content
-                if final_message and "content" in final_message:
-                    response_content = final_message["content"]
-                    if isinstance(response_content, list):
-                        # Handle structured content (e.g., text blocks)
-                        text_parts = []
-                        for item in response_content:
-                            if isinstance(item, dict) and "text" in item:
-                                text_parts.append(item["text"])
-                            elif isinstance(item, str):
-                                text_parts.append(item)
-                        response_text = "\n".join(text_parts)
-                    else:
-                        response_text = str(response_content)
-                else:
-                    response_text = "✅ I processed your request, but didn't generate a specific response. Please try rephrasing your question."
-
-                return [TextContent(type="text", text=response_text)]
-
-            except Exception as e:
-                logger.error(f"Error in chat_with_data: {e}")
-                return [
-                    TextContent(
-                        type="text",
-                        text=f"❌ Error during chat: {str(e)}. Please make sure you have uploaded CSV data first.",
-                    )
-                ]
-
-        @self.mcp.tool(
-            name="chat_with_data_stream",
-            description="Stream a conversation about the loaded CSV data using natural language (real-time response)",
-        )
-        async def chat_with_data_stream(
-            message: str,
-            thread_id: str = "default",
-            stream_thinking: bool = False,
-        ) -> List[TextContent]:
-            """Stream chat with the data using natural language.
-
-            Args:
-                message: User's message/question about the data
-                thread_id: Thread ID for conversation context (optional)
-                stream_thinking: Whether to include thinking blocks in response
-
-            Returns:
-                AI response with streaming-like chunks collected as separate text blocks
-            """
-            streaming_chunks: List[TextContent] = []
-
-            try:
-                # Initialize chat components if needed
-                self._initialize_chat_components()
-
-                if not self.chat_graph:
-                    return [
-                        TextContent(
-                            type="text",
-                            text="❌ Chat functionality not available. Please check server configuration.",
-                        )
-                    ]
-
-                # Get table information for context
-                tables_info = ""
-                if self.db_connection:
-                    try:
-                        tables_result = self.db_connection.execute(
-                            "SHOW TABLES"
-                        ).fetchall()
-                        if tables_result:
-                            table_schemas = []
-                            for table_row in tables_result:
-                                table_name = table_row[0]
-                                schema_result = self.db_connection.execute(
-                                    f"DESCRIBE {table_name}"
-                                ).fetchall()
-                                row_count = self.db_connection.execute(
-                                    f"SELECT COUNT(*) FROM {table_name}"
-                                ).fetchone()[0]
-
-                                columns = []
-                                for col_row in schema_result:
-                                    columns.append(
-                                        f"{col_row[0]} ({col_row[1]})"
-                                    )
-
-                                table_schemas.append(
-                                    f"<table name='{table_name}' rows='{row_count}'>\n"
-                                    + "\n".join(
-                                        [
-                                            f"  <column>{col}</column>"
-                                            for col in columns
-                                        ]
-                                    )
-                                    + "\n</table>"
-                                )
-
-                            tables_info = "\n".join(table_schemas)
-                    except Exception as e:
-                        logger.warning(f"Could not get table information: {e}")
-                        tables_info = (
-                            "<no_tables>No tables available</no_tables>"
-                        )
-                else:
-                    tables_info = "<no_tables>No database connection available</no_tables>"
-
-                # Prepare input for the chat graph
-                input_data = {
-                    "messages": [{"role": "user", "content": message}],
-                    "interrupt_policy": "never",
-                }
-
-                # Configuration for the chat graph
-                config = {
-                    "configurable": {
-                        "llm": {
-                            "primary_model": "claude-sonnet-4-20250514",
-                            "secondary_model": "claude-opus-4-1-20250805",
-                            "max_tokens": 16384,
-                            "tables": tables_info,
-                        },
-                        "thread_id": thread_id,
-                    },
-                }
-
-                # Track streaming content
-                current_content = ""
-                last_yielded_length = 0
-
-                # Execute the chat graph with streaming
-                try:
-                    async for event in self.chat_graph.astream(
-                        input_data,
-                        config=config,
-                        stream_mode=["custom", "updates"],
-                    ):
-                        # Handle custom streaming events from LLM node
-                        for node_name, node_data in event.items():
-                            if node_name == "llm":
-                                # Handle custom events from LLM node (real-time streaming)
-                                if isinstance(node_data, dict):
-                                    # Stream text deltas
-                                    if "text" in node_data:
-                                        text_chunk = node_data["text"]
-                                        if (
-                                            isinstance(text_chunk, str)
-                                            and text_chunk.strip()
-                                        ):
-                                            streaming_chunks.append(
-                                                TextContent(
-                                                    type="text",
-                                                    text=text_chunk,
-                                                )
-                                            )
-
-                                    # Handle thinking blocks (optional - could be filtered out)
-                                    elif (
-                                        "thinking" in node_data
-                                        and stream_thinking
-                                    ):
-                                        thinking_chunk = node_data["thinking"]
-                                        if (
-                                            isinstance(thinking_chunk, str)
-                                            and thinking_chunk.strip()
-                                        ):
-                                            # Prefix thinking content to distinguish it
-                                            streaming_chunks.append(
-                                                TextContent(
-                                                    type="text",
-                                                    text=f"[Thinking: {thinking_chunk}]",
-                                                )
-                                            )
-
-                                    # Handle final message updates
-                                    elif (
-                                        "messages" in node_data
-                                        and node_data["messages"]
-                                    ):
-                                        latest_message = node_data["messages"][
-                                            -1
-                                        ]
-                                        if "content" in latest_message:
-                                            content = latest_message["content"]
-
-                                            # Extract text from structured content
-                                            if isinstance(content, list):
-                                                text_parts = []
-                                                for item in content:
-                                                    if (
-                                                        isinstance(item, dict)
-                                                        and "text" in item
-                                                    ):
-                                                        text_parts.append(
-                                                            item["text"]
-                                                        )
-                                                    elif isinstance(item, str):
-                                                        text_parts.append(item)
-                                                new_content = "\n".join(
-                                                    text_parts
-                                                )
-                                            else:
-                                                new_content = str(content)
-
-                                            # Store incremental updates only if content is longer than before
-                                            if (
-                                                len(new_content)
-                                                > last_yielded_length
-                                            ):
-                                                delta = new_content[
-                                                    last_yielded_length:
-                                                ]
-                                                if delta.strip():  # Only store non-empty deltas
-                                                    streaming_chunks.append(
-                                                        TextContent(
-                                                            type="text",
-                                                            text=delta,
-                                                        )
-                                                    )
-                                                    last_yielded_length = len(
-                                                        new_content
-                                                    )
-                                            current_content = new_content
-
-                    # If no streaming chunks collected but we have final content
-                    if not streaming_chunks and current_content:
-                        streaming_chunks.append(
-                            TextContent(type="text", text=current_content)
-                        )
-                    elif not streaming_chunks and not current_content:
-                        streaming_chunks.append(
-                            TextContent(
-                                type="text",
-                                text="✅ I processed your request, but didn't generate a specific response. Please try rephrasing your question.",
+                    # Include thinking/debug streams if requested
+                    elif include_thinking and node_name in [
+                        "search",
+                        "analyze",
+                        "query",
+                    ]:
+                        if isinstance(node_data, dict):
+                            thinking_text = (
+                                f"[{node_name.upper()}] {str(node_data)}"
                             )
-                        )
+                            streaming_chunks.append(thinking_text)
 
-                    # Return all collected streaming chunks
-                    return (
-                        streaming_chunks
-                        if streaming_chunks
-                        else [
-                            TextContent(
-                                type="text",
-                                text="✅ Chat completed successfully.",
-                            )
-                        ]
-                    )
-
-                except Exception as graph_error:
-                    logger.error(
-                        f"Error executing streaming chat graph: {graph_error}"
-                    )
-                    return [
-                        TextContent(
-                            type="text",
-                            text=f"❌ Error processing your question: {str(graph_error)}",
-                        )
-                    ]
-
-            except Exception as e:
-                logger.error(f"Error in chat_with_data_stream: {e}")
-                return [
-                    TextContent(
-                        type="text",
-                        text=f"❌ Error during chat: {str(e)}. Please make sure you have uploaded CSV data first.",
-                    )
-                ]
-
-    def run(
-        self,
-        transport: str = "stdio",
-        host: str = "localhost",
-        port: int = 3000,
-    ) -> None:
-        """Run the MCP server.
-
-        Args:
-            transport: Transport mode - "stdio" for MCP integration
-            host: Host to bind to (reserved for future HTTP support)
-            port: Port to bind to (reserved for future HTTP support)
-        """
-        if transport == "http":
-            logger.info(f"Starting MCP server: {self.config.server_name}")
-            logger.warning("⚠️  HTTP mode is not yet supported by FastMCP")
-            logger.info(
-                "📡 Falling back to STDIO mode - use MCP Inspector for web testing"
+        # If no streaming chunks collected but we have final content
+        if not streaming_chunks and current_content:
+            streaming_chunks.append(current_content)
+        elif not streaming_chunks and not current_content:
+            streaming_chunks.append(
+                "✅ I processed your request, but didn't generate a specific response. Please try rephrasing your question."
             )
-            logger.info(
-                "🔧 For web interface, use: npx @modelcontextprotocol/inspector python mcp_server.py"
-            )
-            self.mcp.run(transport="stdio")
-        else:
-            logger.info(f"Starting MCP server: {self.config.server_name}")
-            logger.info("📡 STDIO mode - Ready for MCP client connections")
-            logger.info("🌐 For web testing, use: make mcp-inspect")
-            self.mcp.run(transport="stdio")
 
+        return (
+            streaming_chunks
+            if streaming_chunks
+            else ["✅ Chat completed successfully."]
+        )
 
-def create_mcp_server(config: MCPServerConfig) -> SQLAgentMCPServer:
-    """Create and configure MCP server.
-
-    Args:
-        config: Server configuration
-
-    Returns:
-        Configured MCP server instance
-    """
-    return SQLAgentMCPServer(config)
-
-
-def main() -> None:
-    """Main entry point for running the MCP server directly."""
-    config = get_mcp_config()
-    server = create_mcp_server(config)
-    server.run()
+    except Exception as e:
+        logger.error(f"Error in chat_with_data_stream: {e}")
+        raise Exception(
+            f"Error during streaming chat: {str(e)}. Please make sure you have uploaded CSV data first."
+        )
 
 
 if __name__ == "__main__":
-    main()
+    mcp.run()

@@ -12,7 +12,7 @@ from langsmith.wrappers import wrap_anthropic
 from loguru import logger
 from mcp import McpError
 from mcp.server import FastMCP
-from mcp.types import TextContent
+from mcp.types import ErrorData, TextContent
 
 from app.graphs import create_chat_graph
 from app.mcp.config import MCPServerConfig, get_mcp_config
@@ -99,7 +99,10 @@ class SQLAgentMCPServer:
             """
             if not self.query_executor:
                 raise McpError(
-                    "Database not initialized. Please upload CSV data first."
+                    ErrorData(
+                        code="DATABASE_NOT_INITIALIZED",
+                        message="Database not initialized. Please upload CSV data first."
+                    )
                 )
 
             try:
@@ -899,10 +902,34 @@ Use execute_sql_query to query the data."""
                     )
                 ]
 
-    def run(self) -> None:
-        """Run the MCP server."""
-        logger.info(f"Starting MCP server: {self.config.server_name}")
-        self.mcp.run(transport="stdio")
+    def run(
+        self,
+        transport: str = "stdio",
+        host: str = "localhost",
+        port: int = 3000,
+    ) -> None:
+        """Run the MCP server.
+
+        Args:
+            transport: Transport mode - "stdio" for MCP integration
+            host: Host to bind to (reserved for future HTTP support)
+            port: Port to bind to (reserved for future HTTP support)
+        """
+        if transport == "http":
+            logger.info(f"Starting MCP server: {self.config.server_name}")
+            logger.warning("⚠️  HTTP mode is not yet supported by FastMCP")
+            logger.info(
+                "📡 Falling back to STDIO mode - use MCP Inspector for web testing"
+            )
+            logger.info(
+                "🔧 For web interface, use: npx @modelcontextprotocol/inspector python mcp_server.py"
+            )
+            self.mcp.run(transport="stdio")
+        else:
+            logger.info(f"Starting MCP server: {self.config.server_name}")
+            logger.info("📡 STDIO mode - Ready for MCP client connections")
+            logger.info("🌐 For web testing, use: make mcp-inspect")
+            self.mcp.run(transport="stdio")
 
 
 def create_mcp_server(config: MCPServerConfig) -> SQLAgentMCPServer:

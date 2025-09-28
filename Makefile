@@ -100,9 +100,25 @@ docker_shell:
 # MCP Server
 # ------------------------------------------------------------------------------
 
-# Run the MCP server for Model Context Protocol integration
+# Run the MCP server in STDIO mode (default, for MCP client integration)
 mcp:
 	uv run python mcp_server.py
+
+# Run MCP server with HTTP mode request (falls back to stdio + instructions)
+mcp-http:
+	uv run python mcp_server.py --http
+
+# Run MCP server with HTTP mode on custom port (falls back to stdio + instructions)  
+mcp-http-port:
+	uv run python mcp_server.py --http --port 8080
+
+# Run MCP server with HTTP mode on public IP (falls back to stdio + instructions)
+mcp-http-public:
+	uv run python mcp_server.py --http --host 0.0.0.0 --port 3000
+
+# Show MCP server usage help
+mcp-help:
+	uv run python mcp_server.py --help
 
 # Test MCP server with the official MCP Inspector
 mcp-inspect:

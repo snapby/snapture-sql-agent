@@ -2,6 +2,7 @@
 
 import os
 import tempfile
+import xml.etree.ElementTree as ET
 from typing import Annotated, Any, List
 from urllib.parse import urlparse
 
@@ -76,6 +77,54 @@ def _initialize_chat_components() -> None:
         prompt_store=_prompt_store,
         checkpointer=None,  # No checkpointer for MCP server
     )
+
+
+def _generate_tables_schema_xml() -> str:
+    """Generate tables schema in XML format for LangGraph configuration."""
+    try:
+        db_connection = _get_db_connection()
+
+        # Get all tables
+        tables_result = db_connection.execute("SHOW TABLES").fetchall()
+
+        if not tables_result:
+            return "<tables_schema></tables_schema>"
+
+        # Build schemas structure
+        schemas = []
+        for table_row in tables_result:
+            table_name = table_row[0]
+
+            # Get column info for this table
+            cols = db_connection.execute(
+                f'PRAGMA table_info("{table_name}")'
+            ).fetchall()
+
+            # Format schema as expected by the XML function
+            schema = [{c[1]: c[2]} for c in cols]  # {column_name: data_type}
+            schemas.append({"table_name": table_name, "schema": schema})
+
+        # Generate XML using the same function as FastAPI
+        root = ET.Element("tables_schema")
+        for tbl in schemas:
+            table_el = ET.SubElement(
+                root, "table", {"name": tbl["table_name"]}
+            )
+            for col in tbl.get("schema", []):
+                ((col_name, data_type),) = col.items()
+                ET.SubElement(
+                    table_el,
+                    "column",
+                    {"name": col_name, "data_type": data_type},
+                )
+
+        tree = ET.ElementTree(root)
+        ET.indent(tree, space="  ")
+        return ET.tostring(root, encoding="unicode")
+
+    except Exception as e:
+        logger.error(f"Error generating tables schema XML: {e}")
+        return "<tables_schema></tables_schema>"
 
 
 def _upload_csv_helper(
@@ -279,10 +328,24 @@ async def chat_with_data(
     _initialize_chat_components()
 
     try:
-        # Execute the chat graph
-        result = await _chat_graph.ainvoke(
-            {"question": question}, {"recursion_limit": 50}
-        )
+        # Generate tables schema XML for LangGraph configuration
+        tables_schema_xml = _generate_tables_schema_xml()
+
+        # Configure proper LangGraph config as expected by LLM node
+        config = {
+            "configurable": {
+                "llm": {
+                    "primary_model": "claude-sonnet-4-20250514",
+                    "secondary_model": "claude-opus-4-1-20250805",
+                    "max_tokens": 16384,
+                    "tables": tables_schema_xml,
+                }
+            },
+            "recursion_limit": 50,
+        }
+
+        # Execute the chat graph with proper configuration
+        result = await _chat_graph.ainvoke({"question": question}, config)
 
         # Extract the response
         if isinstance(result, dict) and "response" in result:
@@ -322,10 +385,24 @@ async def chat_with_data_stream(
         current_content = ""
         last_yielded_length = 0
 
-        # Stream from the chat graph
-        async for event in _chat_graph.astream(
-            {"question": question}, {"recursion_limit": 50}
-        ):
+        # Generate tables schema XML for LangGraph configuration
+        tables_schema_xml = _generate_tables_schema_xml()
+
+        # Configure proper LangGraph config as expected by LLM node
+        config = {
+            "configurable": {
+                "llm": {
+                    "primary_model": "claude-sonnet-4-20250514",
+                    "secondary_model": "claude-opus-4-1-20250805",
+                    "max_tokens": 16384,
+                    "tables": tables_schema_xml,
+                }
+            },
+            "recursion_limit": 50,
+        }
+
+        # Stream from the chat graph with proper configuration
+        async for event in _chat_graph.astream({"question": question}, config):
             if isinstance(event, dict):
                 for node_name, node_data in event.items():
                     if node_name == "generate" and isinstance(node_data, dict):

@@ -55,7 +55,16 @@ def _initialize_chat_components() -> None:
     # Always re-initialize tool handler and chat graph to pick up latest DB state
     if _anthropic_client is None:
         # Initialize Anthropic client (only once)
-        _anthropic_client = wrap_anthropic(client=AsyncAnthropic())
+        anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
+        if not anthropic_api_key:
+            raise ValueError(
+                "ANTHROPIC_API_KEY environment variable is required for chat functionality. "
+                "Please set it in your .env file or environment. "
+                "Get your API key at: https://console.anthropic.com/"
+            )
+        _anthropic_client = wrap_anthropic(
+            client=AsyncAnthropic(api_key=anthropic_api_key)
+        )
 
         # Get config for paths (only once)
         config = get_mcp_config()

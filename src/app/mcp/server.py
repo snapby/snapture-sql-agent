@@ -77,6 +77,58 @@ def _initialize_chat_components() -> None:
         )
 
 
+def _upload_csv_helper(
+    csv_content: str, table_name: str, description: str = ""
+) -> str:
+    """Helper function to upload CSV data to DuckDB (not a tool)."""
+    db_connection = _get_db_connection()
+
+    # Write CSV content to temporary file
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".csv", delete=False
+    ) as f:
+        f.write(csv_content)
+        temp_file = f.name
+
+    try:
+        # Load CSV into DuckDB
+        db_connection.execute(f"""
+            CREATE OR REPLACE TABLE {table_name} AS 
+            SELECT * FROM read_csv('{temp_file}', auto_detect=true, header=true)
+        """)
+
+        # Get table schema
+        schema_result = db_connection.execute(
+            f"DESCRIBE {table_name}"
+        ).fetchall()
+        schema_info = []
+        for row in schema_result:
+            schema_info.append(f"  {row[0]}: {row[1]}")
+
+        schema_text = "\\n".join(schema_info)
+
+        # Get row count
+        row_count_result = db_connection.execute(
+            f"SELECT COUNT(*) FROM {table_name}"
+        ).fetchone()
+        row_count = row_count_result[0] if row_count_result else 0
+
+        return f"""CSV data successfully uploaded!
+
+Table: {table_name}
+Rows: {row_count}
+Description: {description or "No description provided"}
+
+Schema:
+{schema_text}
+
+The data is now ready for SQL queries. Use the execute_sql_query tool to analyze it!"""
+
+    finally:
+        # Clean up temp file
+        os.unlink(temp_file)
+
+
 @mcp.tool
 async def execute_sql_query(
     query: Annotated[
@@ -128,53 +180,7 @@ async def upload_csv_data(
 ) -> str:
     """Upload CSV data to DuckDB and make it available for querying."""
     try:
-        db_connection = _get_db_connection()
-
-        # Write CSV content to temporary file
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".csv", delete=False
-        ) as f:
-            f.write(csv_content)
-            temp_file = f.name
-
-        try:
-            # Load CSV into DuckDB
-            db_connection.execute(f"""
-                CREATE OR REPLACE TABLE {table_name} AS 
-                SELECT * FROM read_csv('{temp_file}', auto_detect=true, header=true)
-            """)
-
-            # Get table schema
-            schema_result = db_connection.execute(
-                f"DESCRIBE {table_name}"
-            ).fetchall()
-            schema_info = []
-            for row in schema_result:
-                schema_info.append(f"  {row[0]}: {row[1]}")
-
-            schema_text = "\\n".join(schema_info)
-
-            # Get row count
-            row_count_result = db_connection.execute(
-                f"SELECT COUNT(*) FROM {table_name}"
-            ).fetchone()
-            row_count = row_count_result[0] if row_count_result else 0
-
-            return f"""CSV data successfully uploaded!
-
-Table: {table_name}
-Rows: {row_count}
-Description: {description or "No description provided"}
-
-Schema:
-{schema_text}
-
-The data is now ready for SQL queries. Use the execute_sql_query tool to analyze it!"""
-
-        finally:
-            # Clean up temp file
-            os.unlink(temp_file)
-
+        return _upload_csv_helper(csv_content, table_name, description)
     except Exception as e:
         logger.error(f"Error uploading CSV data: {e}")
         raise Exception(f"Error uploading CSV data: {str(e)}")
@@ -204,8 +210,8 @@ async def upload_csv_from_url(
             response.raise_for_status()
             csv_content = response.text
 
-        # Use the upload_csv_data function
-        result = await upload_csv_data(
+        # Use the helper function to upload CSV
+        result = _upload_csv_helper(
             csv_content, table_name, f"Data from {url}. {description}"
         )
         return result

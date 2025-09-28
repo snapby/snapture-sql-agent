@@ -51,30 +51,31 @@ def _initialize_chat_components() -> None:
     """Initialize components needed for chat functionality."""
     global _anthropic_client, _chat_graph, _tool_handler, _prompt_store
 
+    # Always re-initialize tool handler and chat graph to pick up latest DB state
     if _anthropic_client is None:
-        # Initialize Anthropic client
+        # Initialize Anthropic client (only once)
         _anthropic_client = wrap_anthropic(client=AsyncAnthropic())
 
-        # Initialize tool handler
-        _tool_handler = get_tool_handler(
-            dependencies={"conn": _get_db_connection()}
-        )
-
-        # Get config for paths
+        # Get config for paths (only once)
         config = get_mcp_config()
 
-        # Initialize prompt store
+        # Initialize prompt store (only once)
         _prompt_store = PromptStore(
             prompts_dir=config.app_settings.paths.prompts_dir
         )
 
-        # Create chat graph
-        _chat_graph = create_chat_graph(
-            anthropic_client=_anthropic_client,
-            tool_handler=_tool_handler,
-            prompt_store=_prompt_store,
-            checkpointer=None,  # No checkpointer for MCP server
-        )
+    # Always re-initialize tool handler to pick up latest database state
+    _tool_handler = get_tool_handler(
+        dependencies={"conn": _get_db_connection()}
+    )
+
+    # Always re-create chat graph with fresh tool handler
+    _chat_graph = create_chat_graph(
+        anthropic_client=_anthropic_client,
+        tool_handler=_tool_handler,
+        prompt_store=_prompt_store,
+        checkpointer=None,  # No checkpointer for MCP server
+    )
 
 
 def _upload_csv_helper(
@@ -271,10 +272,11 @@ async def chat_with_data(
     ],
 ) -> str:
     """Have a conversational chat about your data using natural language."""
-    _initialize_chat_components()
-
     # Ensure query executor is available
     _ = _get_query_executor()  # Initialize if needed
+
+    # Initialize chat components after ensuring DB is ready
+    _initialize_chat_components()
 
     try:
         # Execute the chat graph
@@ -309,10 +311,11 @@ async def chat_with_data_stream(
     ] = False,
 ) -> List[str]:
     """Have a conversational chat about your data with streaming response chunks."""
-    _initialize_chat_components()
-
     # Ensure query executor is available
     _ = _get_query_executor()  # Initialize if needed
+
+    # Initialize chat components after ensuring DB is ready
+    _initialize_chat_components()
 
     try:
         streaming_chunks = []

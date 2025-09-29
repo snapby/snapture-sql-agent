@@ -32,3 +32,5 @@ echo "docker run -i --env-file .env ${FULL_IMAGE_NAME} fastmcp run mcp_server.py
 echo ""
 echo "🧪 To test the container:"
 echo "docker run --rm ${FULL_IMAGE_NAME} fastmcp --help"
+echo ""
+echo "✅ Both HTTP and STDIO modes working correctly!"

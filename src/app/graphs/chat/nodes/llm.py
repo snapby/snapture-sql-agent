@@ -169,8 +169,20 @@ class LLM(Node[ChatGraphState]):
 
         # Log messages being sent
         for i, msg in enumerate(state.messages):
+            content_str = str(msg.get("content", ""))
             logger.info(
-                f"📝 [LLM] Message {i}: role='{msg.get('role', 'unknown')}', content preview: '{str(msg.get('content', ''))[:100]}{'...' if len(str(msg.get('content', ''))) > 100 else ''}'"
+                f"📝 [LLM] Message {i}: role='{msg.get('role', 'unknown')}', content preview: '{content_str[:100]}{'...' if len(content_str) > 100 else ''}'"
+            )
+            # Log full message for debugging (truncated to avoid log spam)
+            logger.debug(f"📋 [LLM] Full Message {i}: {msg}")
+
+        # Log full conversation context for debugging
+        logger.info(
+            f"🔍 [LLM] Full conversation has {len(state.messages)} messages total"
+        )
+        if len(state.messages) > 1:
+            logger.info(
+                "🔄 [LLM] This appears to be a follow-up call with tool results"
             )
 
         # Log system prompt preview
@@ -194,16 +206,30 @@ class LLM(Node[ChatGraphState]):
         # Add cache control to the last system prompt part
         system_prompt_parts[-1]["cache_control"] = {"type": "ephemeral"}
 
-        async with self.anthropic_client.beta.messages.stream(
-            model=model_name,
-            max_tokens=node_config.get("max_tokens", 16_384),
-            thinking={"type": "enabled", "budget_tokens": 10_000},
-            messages=state.messages,  # type: ignore
-            tools=self.tool_schemas,  # type: ignore
-            system=system_prompt_parts,
-            betas=["interleaved-thinking-2025-05-14"],
-        ) as stream:
-            yield stream
+        logger.info(
+            "⚡ [LLM] About to call Anthropic API - starting stream..."
+        )
+
+        try:
+            async with self.anthropic_client.beta.messages.stream(
+                model=model_name,
+                max_tokens=node_config.get("max_tokens", 16_384),
+                thinking={"type": "enabled", "budget_tokens": 10_000},
+                messages=state.messages,  # type: ignore
+                tools=self.tool_schemas,  # type: ignore
+                system=system_prompt_parts,
+                betas=["interleaved-thinking-2025-05-14"],
+            ) as stream:
+                logger.info("🌊 [LLM] Stream established successfully")
+                yield stream
+                logger.info("✅ [LLM] Stream completed successfully")
+
+        except Exception as api_error:
+            logger.error(
+                f"💥 [LLM] Anthropic API error: {type(api_error).__name__}: {str(api_error)}"
+            )
+            logger.error(f"🔍 [LLM] Error details: {repr(api_error)}")
+            raise
 
     async def _execute_with_model(
         self,

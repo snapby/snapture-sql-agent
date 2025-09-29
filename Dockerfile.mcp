@@ -16,12 +16,20 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Copy application source code
 COPY . /app
 
+# Create README.md if not present (required by hatchling build)
+RUN touch README.md
+
 # Install the project itself
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-editable --no-dev
 
 # Stage 2: Runtime image
 FROM python:3.13-slim-bookworm AS runtime
+
+# Install curl for health checks
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user for security
 RUN groupadd --gid=1000 app \
@@ -32,7 +40,7 @@ COPY --from=builder --chown=app:app /app /app
 
 # Set up environment
 ENV PATH="/app/.venv/bin:$PATH"
-ENV PYTHONPATH="/app/src:$PATH"
+ENV PYTHONPATH="/app/src"
 
 # Switch to non-root user
 USER app
@@ -45,8 +53,5 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:3000/health || exit 1
 
-# Set entrypoint to uv run
-ENTRYPOINT ["uv", "run"]
-
 # Default command to run MCP server on HTTP transport
-CMD ["fastmcp", "run", "mcp_server.py:mcp", "--transport", "http", "--port", "3000", "--host", "0.0.0.0"]
+CMD ["python", "-m", "fastmcp", "run", "mcp_server.py:mcp", "--transport", "http", "--port", "3000", "--host", "0.0.0.0"]

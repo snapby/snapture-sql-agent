@@ -29,3 +29,6 @@ echo "docker run -p 3000:3000 -e DATABASE_URL='your_db_url' -e ANTHROPIC_API_KEY
 echo ""
 echo "🛠️  To run in STDIO mode (for MCP client integration):"
 echo "docker run -i --env-file .env ${FULL_IMAGE_NAME} fastmcp run mcp_server.py:mcp --transport stdio"
+echo ""
+echo "🧪 To test the container:"
+echo "docker run --rm ${FULL_IMAGE_NAME} fastmcp --help"

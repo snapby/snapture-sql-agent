@@ -1,0 +1,52 @@
+# Stage 1: Build the application
+FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim AS builder
+
+ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
+
+# Create app directory
+WORKDIR /app
+
+# Copy dependency files first for better layer caching
+COPY pyproject.toml uv.lock ./
+
+# Install dependencies only (no project code yet)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --no-install-project --no-editable --no-dev
+
+# Copy application source code
+COPY . /app
+
+# Install the project itself
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --no-editable --no-dev
+
+# Stage 2: Runtime image
+FROM python:3.13-slim-bookworm AS runtime
+
+# Create non-root user for security
+RUN groupadd --gid=1000 app \
+    && useradd --uid=1000 --gid=app --shell=/bin/bash --create-home app
+
+# Copy the virtual environment from builder stage
+COPY --from=builder --chown=app:app /app /app
+
+# Set up environment
+ENV PATH="/app/.venv/bin:$PATH"
+ENV PYTHONPATH="/app/src:$PATH"
+
+# Switch to non-root user
+USER app
+WORKDIR /app
+
+# Expose the MCP server port
+EXPOSE 3000
+
+# Health check to ensure MCP server is running
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:3000/health || exit 1
+
+# Set entrypoint to uv run
+ENTRYPOINT ["uv", "run"]
+
+# Default command to run MCP server on HTTP transport
+CMD ["fastmcp", "run", "mcp_server.py:mcp", "--transport", "http", "--port", "3000", "--host", "0.0.0.0"]

@@ -341,6 +341,9 @@ async def chat_with_data(
     try:
         # Generate tables schema XML for LangGraph configuration
         tables_schema_xml = _generate_tables_schema_xml()
+        logger.info(
+            f"📊 Generated tables schema XML: {len(tables_schema_xml)} characters"
+        )
 
         # Configure proper LangGraph config as expected by LLM node
         config = {
@@ -361,16 +364,44 @@ async def chat_with_data(
             "messages": [{"role": "user", "content": question}],
             "interrupt_policy": "never",
         }
+
+        logger.info(
+            f"🤖 Starting chat with question: '{question[:100]}{'...' if len(question) > 100 else ''}'"
+        )
+        logger.info(
+            f"📋 LangGraph config: primary_model={config['configurable']['llm']['primary_model']}, max_tokens={config['configurable']['llm']['max_tokens']}"
+        )
+        logger.info(f"📝 Input data: {input_data}")
+        logger.info(
+            f"🗂️ Tables schema preview: {tables_schema_xml[:500]}{'...' if len(tables_schema_xml) > 500 else ''}"
+        )
+
+        logger.info("⏳ [CHAT] Executing chat graph...")
         result = await _chat_graph.ainvoke(input_data, config)
+        logger.info(
+            f"✅ [CHAT] Chat graph execution completed. Result type: {type(result)}"
+        )
 
         # Extract the response
         if isinstance(result, dict) and "response" in result:
             response = result["response"]
             if hasattr(response, "content"):
-                return str(response.content)
-            return str(response)
+                response_text = str(response.content)
+                logger.info(
+                    f"📤 [CHAT] Response extracted from result.response.content: {len(response_text)} characters"
+                )
+                return response_text
+            response_text = str(response)
+            logger.info(
+                f"📤 [CHAT] Response extracted from result.response: {len(response_text)} characters"
+            )
+            return response_text
 
-        return str(result)
+        response_text = str(result)
+        logger.info(
+            f"📤 [CHAT] Response from raw result: {len(response_text)} characters"
+        )
+        return response_text
 
     except Exception as e:
         logger.error(f"Error in chat_with_data: {e}")
@@ -403,6 +434,9 @@ async def chat_with_data_stream(
 
         # Generate tables schema XML for LangGraph configuration
         tables_schema_xml = _generate_tables_schema_xml()
+        logger.info(
+            f"📊 [STREAM] Generated tables schema XML: {len(tables_schema_xml)} characters"
+        )
 
         # Configure proper LangGraph config as expected by LLM node
         config = {
@@ -423,6 +457,17 @@ async def chat_with_data_stream(
             "messages": [{"role": "user", "content": question}],
             "interrupt_policy": "never",
         }
+
+        logger.info(
+            f"🔄 [STREAM] Starting streaming chat with question: '{question[:100]}{'...' if len(question) > 100 else ''}'"
+        )
+        logger.info(
+            f"📋 [STREAM] LangGraph config: primary_model={config['configurable']['llm']['primary_model']}"
+        )
+        logger.info(
+            f"🗂️ [STREAM] Tables schema preview: {tables_schema_xml[:500]}{'...' if len(tables_schema_xml) > 500 else ''}"
+        )
+
         async for event in _chat_graph.astream(input_data, config):
             if isinstance(event, dict):
                 for node_name, node_data in event.items():

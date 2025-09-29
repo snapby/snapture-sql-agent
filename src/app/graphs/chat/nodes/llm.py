@@ -210,6 +210,14 @@ class LLM(Node[ChatGraphState]):
             "⚡ [LLM] About to call Anthropic API - starting stream..."
         )
 
+        # Add timeout and special handling for follow-up calls with tool results
+        timeout_seconds = 60  # 1 minute timeout
+        if len(state.messages) > 1:
+            timeout_seconds = 90  # Longer timeout for follow-up calls
+            logger.info(
+                f"⏰ [LLM] Using extended timeout ({timeout_seconds}s) for follow-up call with tool results"
+            )
+
         try:
             async with self.anthropic_client.beta.messages.stream(
                 model=model_name,

@@ -54,7 +54,7 @@ class QueryExecutorInput(BaseModel):
 
 
 class QueryExecutorTool(
-    BaseTool[ChatGraphState, QueryExecutorInput, str | dict],
+    BaseTool[ChatGraphState, QueryExecutorInput, str],
     arbitrary_types_allowed=True,
 ):
     name: str = "duckdb_query_executor"
@@ -65,7 +65,7 @@ class QueryExecutorTool(
 
     async def __call__(
         self, input_data: QueryExecutorInput, state: ChatGraphState
-    ) -> str | dict:
+    ) -> str:
         should_interrupt = state.interrupt_policy == "always" or (
             state.interrupt_policy == "final" and input_data.purpose == "final"
         )
@@ -120,19 +120,25 @@ class QueryExecutorTool(
             # Serialize datetime objects to prevent JSON serialization errors
             serialized_results = serialize_datetime_objects(truncated_result)
 
-            # Return structured data instead of JSON string for better LLM processing
+            # Return JSON string (Anthropic API requires tool_result.content as string, not dict)
             if query_modified:
-                return dict(
-                    message="User modified the proposed query.",
-                    executed_query=input_data.query,
-                    reason=human_reason or "No reason provided.",
+                return json.dumps(
+                    obj=dict(
+                        message="User modified the proposed query.",
+                        executed_query=input_data.query,
+                        reason=human_reason or "No reason provided.",
+                        results=serialized_results,
+                        summary=summary_info,
+                    ),
+                    default=str,
+                )
+            return json.dumps(
+                obj=dict(
+                    message="Query executed successfully",
                     results=serialized_results,
                     summary=summary_info,
-                )
-            return dict(
-                message="Query executed successfully",
-                results=serialized_results,
-                summary=summary_info,
+                ),
+                default=str,
             )
 
         except Exception as exc:

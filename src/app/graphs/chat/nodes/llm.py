@@ -142,25 +142,65 @@ class LLM(Node[ChatGraphState]):
             Stream of messages from the model
         """
 
+        # Prepare system prompt
+        system_prompt_parts = [
+            {
+                "type": "text",
+                "text": f"<current_date> {datetime.now(timezone.utc).date()} </current_date>",
+            },
+            {
+                "type": "text",
+                "text": self.prompt_store.get_prompt("system.jinja2").render(
+                    tables=node_config["tables"]
+                ),
+            },
+        ]
+
+        # Log detailed information about what we're sending to Anthropic
+        logger.info(f"🚀 [LLM] Calling Anthropic API with model: {model_name}")
+        logger.info(
+            f"📊 [LLM] Max tokens: {node_config.get('max_tokens', 16_384)}"
+        )
+        logger.info(f"💬 [LLM] Messages count: {len(state.messages)}")
+        logger.info(f"🔧 [LLM] Tools count: {len(self.tool_schemas)}")
+        logger.info(
+            f"📋 [LLM] System prompt parts count: {len(system_prompt_parts)}"
+        )
+
+        # Log messages being sent
+        for i, msg in enumerate(state.messages):
+            logger.info(
+                f"📝 [LLM] Message {i}: role='{msg.get('role', 'unknown')}', content preview: '{str(msg.get('content', ''))[:100]}{'...' if len(str(msg.get('content', ''))) > 100 else ''}'"
+            )
+
+        # Log system prompt preview
+        system_text = system_prompt_parts[1]["text"]
+        logger.info(
+            f"🎯 [LLM] System prompt preview (first 500 chars): {system_text[:500]}{'...' if len(system_text) > 500 else ''}"
+        )
+
+        # Log schema XML tables info if available
+        if "tables" in node_config:
+            tables_xml = node_config["tables"]
+            logger.info(
+                f"🗂️ [LLM] Tables XML length: {len(tables_xml)} characters"
+            )
+            if "<table" in tables_xml:
+                table_count = tables_xml.count("<table")
+                logger.info(
+                    f"📊 [LLM] Number of tables in schema: {table_count}"
+                )
+
+        # Add cache control to the last system prompt part
+        system_prompt_parts[-1]["cache_control"] = {"type": "ephemeral"}
+
         async with self.anthropic_client.beta.messages.stream(
             model=model_name,
             max_tokens=node_config.get("max_tokens", 16_384),
             thinking={"type": "enabled", "budget_tokens": 10_000},
             messages=state.messages,  # type: ignore
             tools=self.tool_schemas,  # type: ignore
-            system=[
-                {
-                    "type": "text",
-                    "text": f"<current_date> {datetime.now(timezone.utc).date()} </current_date>",
-                },
-                {
-                    "type": "text",
-                    "text": self.prompt_store.get_prompt(
-                        "system.jinja2"
-                    ).render(tables=node_config["tables"]),
-                    "cache_control": {"type": "ephemeral"},
-                },
-            ],
+            system=system_prompt_parts,
             betas=["interleaved-thinking-2025-05-14"],
         ) as stream:
             yield stream

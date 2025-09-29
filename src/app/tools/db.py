@@ -1,5 +1,6 @@
 import json
-from typing import Annotated, Literal
+from datetime import datetime
+from typing import Annotated, Any, Literal
 
 import duckdb
 from langgraph.types import interrupt
@@ -9,6 +10,28 @@ from pydantic import BaseModel, Field
 from app.graphs.chat.state import ChatGraphState
 from app.models.graph.interrupts import QueryExecutorHumanFeedback
 from app.tools.base import BaseTool
+
+
+def serialize_datetime_objects(obj: Any) -> Any:
+    """Recursively convert datetime objects to strings in nested data structures.
+
+    Args:
+        obj: The object to process (dict, list, or primitive type)
+
+    Returns:
+        The same structure with datetime objects converted to ISO format strings
+    """
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    elif isinstance(obj, dict):
+        return {
+            key: serialize_datetime_objects(value)
+            for key, value in obj.items()
+        }
+    elif isinstance(obj, list):
+        return [serialize_datetime_objects(item) for item in obj]
+    else:
+        return obj
 
 
 class QueryExecutorInput(BaseModel):
@@ -94,18 +117,21 @@ class QueryExecutorTool(
                 "truncated": is_truncated,
             }
 
+            # Serialize datetime objects to prevent JSON serialization errors
+            serialized_results = serialize_datetime_objects(truncated_result)
+
             # Return structured data instead of JSON string for better LLM processing
             if query_modified:
                 return dict(
                     message="User modified the proposed query.",
                     executed_query=input_data.query,
                     reason=human_reason or "No reason provided.",
-                    results=truncated_result,
+                    results=serialized_results,
                     summary=summary_info,
                 )
             return dict(
                 message="Query executed successfully",
-                results=truncated_result,
+                results=serialized_results,
                 summary=summary_info,
             )
 

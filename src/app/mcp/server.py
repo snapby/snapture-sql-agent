@@ -356,7 +356,12 @@ async def chat_with_data(
         }
 
         # Execute the chat graph with proper configuration
-        result = await _chat_graph.ainvoke({"question": question}, config)
+        # Convert question to messages format as expected by ChatGraphState
+        input_data = {
+            "messages": [{"role": "user", "content": question}],
+            "interrupt_policy": "never",
+        }
+        result = await _chat_graph.ainvoke(input_data, config)
 
         # Extract the response
         if isinstance(result, dict) and "response" in result:
@@ -413,7 +418,12 @@ async def chat_with_data_stream(
         }
 
         # Stream from the chat graph with proper configuration
-        async for event in _chat_graph.astream({"question": question}, config):
+        # Convert question to messages format as expected by ChatGraphState
+        input_data = {
+            "messages": [{"role": "user", "content": question}],
+            "interrupt_policy": "never",
+        }
+        async for event in _chat_graph.astream(input_data, config):
             if isinstance(event, dict):
                 for node_name, node_data in event.items():
                     if node_name == "generate" and isinstance(node_data, dict):

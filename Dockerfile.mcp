@@ -54,4 +54,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:3000/health || exit 1
 
 # Default command to run MCP server on HTTP transport
-CMD ["python", "-m", "fastmcp", "run", "mcp_server.py:mcp", "--transport", "http", "--port", "3000", "--host", "0.0.0.0"]
+CMD ["fastmcp", "run", "mcp_server.py:mcp", "--transport", "http", "--port", "3000", "--host", "0.0.0.0"]

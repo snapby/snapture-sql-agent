@@ -16,12 +16,20 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Copy application source code
 COPY . /app
 
+# Create README.md if not present (required by hatchling build)
+RUN touch README.md
+
 # Install the project itself
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-editable --no-dev
 
 # Stage 2: Runtime image
 FROM python:3.13-slim-bookworm AS runtime
+
+# Install curl for health checks
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user for security
 RUN groupadd --gid=1000 app \

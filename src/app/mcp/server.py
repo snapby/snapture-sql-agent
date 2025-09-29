@@ -376,6 +376,15 @@ async def chat_with_data(
             f"🗂️ Tables schema preview: {tables_schema_xml[:500]}{'...' if len(tables_schema_xml) > 500 else ''}"
         )
 
+        # Set debug logging for more detailed message tracing
+        import os
+
+        if os.getenv("MCP_DEBUG", "").lower() in ("true", "1", "yes"):
+            logger.info("🔍 [DEBUG MODE] Full input data:")
+            logger.info(f"📋 [DEBUG] {input_data}")
+            logger.info("🔍 [DEBUG MODE] Full tables schema:")
+            logger.info(f"📋 [DEBUG] {tables_schema_xml}")
+
         logger.info("⏳ [CHAT] Executing chat graph...")
         result = await _chat_graph.ainvoke(input_data, config)
         logger.info(

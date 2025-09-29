@@ -31,7 +31,7 @@ class QueryExecutorInput(BaseModel):
 
 
 class QueryExecutorTool(
-    BaseTool[ChatGraphState, QueryExecutorInput, str],
+    BaseTool[ChatGraphState, QueryExecutorInput, str | dict],
     arbitrary_types_allowed=True,
 ):
     name: str = "duckdb_query_executor"
@@ -42,7 +42,7 @@ class QueryExecutorTool(
 
     async def __call__(
         self, input_data: QueryExecutorInput, state: ChatGraphState
-    ) -> str:
+    ) -> str | dict:
         should_interrupt = state.interrupt_policy == "always" or (
             state.interrupt_policy == "final" and input_data.purpose == "final"
         )
@@ -82,22 +82,31 @@ class QueryExecutorTool(
             result = [dict(zip(columns, r)) for r in rows]
             logger.info("Query returned {n} rows.", n=len(result))
 
+            # Limit results size for tool calls to prevent API timeout
+            max_results = 50  # Limit to prevent large payloads
+            truncated_result = result[:max_results]
+            is_truncated = len(result) > max_results
+
+            # Add summary for truncated results
+            summary_info = {
+                "total_rows": len(result),
+                "returned_rows": len(truncated_result),
+                "truncated": is_truncated,
+            }
+
+            # Return structured data instead of JSON string for better LLM processing
             if query_modified:
-                return json.dumps(
-                    obj=dict(
-                        message="User modified the proposed query.",
-                        executed_query=input_data.query,
-                        reason=human_reason or "No reason provided.",
-                        results=result,
-                    ),
-                    default=str,
+                return dict(
+                    message="User modified the proposed query.",
+                    executed_query=input_data.query,
+                    reason=human_reason or "No reason provided.",
+                    results=truncated_result,
+                    summary=summary_info,
                 )
-            return json.dumps(
-                obj=dict(
-                    message="Query executed successfully",
-                    results=result,
-                ),
-                default=str,
+            return dict(
+                message="Query executed successfully",
+                results=truncated_result,
+                summary=summary_info,
             )
 
         except Exception as exc:

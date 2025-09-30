@@ -94,9 +94,10 @@ class MCPSchemaInspector:
             for table_row in tables:
                 table_name = table_row[0]
                 try:
-                    row_count = self.connection.execute(
+                    result = self.connection.execute(
                         f"SELECT COUNT(*) FROM {table_name}"
-                    ).fetchone()[0]
+                    ).fetchone()
+                    row_count = result[0] if result is not None else 0
                     table_info.append(f"• {table_name} ({row_count} rows)")
                 except Exception as e:
                     table_info.append(
@@ -144,9 +145,10 @@ class MCPSchemaInspector:
             schema = self.connection.execute(
                 f"DESCRIBE {table_name}"
             ).fetchall()
-            row_count = self.connection.execute(
+            result = self.connection.execute(
                 f"SELECT COUNT(*) FROM {table_name}"
-            ).fetchone()[0]
+            ).fetchone()
+            row_count = result[0] if result is not None else 0
 
             # Format schema information
             schema_lines = []
@@ -231,9 +233,10 @@ class MCPCSVUploader:
                 """)
 
                 # Get information about the loaded table
-                row_count = self.connection.execute(
+                result = self.connection.execute(
                     f"SELECT COUNT(*) FROM {table_name}"
-                ).fetchone()[0]
+                ).fetchone()
+                row_count = result[0] if result is not None else 0
                 schema = self.connection.execute(
                     f"DESCRIBE {table_name}"
                 ).fetchall()
@@ -381,9 +384,10 @@ The table is now available for querying. Use execute_sql_query to run SQL querie
                 """)
 
                 # Get information about the loaded table
-                row_count = self.connection.execute(
+                result = self.connection.execute(
                     f"SELECT COUNT(*) FROM {table_name}"
-                ).fetchone()[0]
+                ).fetchone()
+                row_count = result[0] if result is not None else 0
                 schema = self.connection.execute(
                     f"DESCRIBE {table_name}"
                 ).fetchall()

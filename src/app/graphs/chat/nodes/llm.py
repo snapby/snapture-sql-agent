@@ -204,7 +204,8 @@ class LLM(Node[ChatGraphState]):
                 )
 
         # Add cache control to the last system prompt part
-        system_prompt_parts[-1]["cache_control"] = {"type": "ephemeral"}
+        if isinstance(system_prompt_parts[-1], dict):
+            system_prompt_parts[-1]["cache_control"] = {"type": "ephemeral"}
 
         logger.info(
             "⚡ [LLM] About to call Anthropic API - starting stream..."
@@ -225,7 +226,7 @@ class LLM(Node[ChatGraphState]):
                 thinking={"type": "enabled", "budget_tokens": 10_000},
                 messages=state.messages,  # type: ignore
                 tools=self.tool_schemas,  # type: ignore
-                system=system_prompt_parts,
+                system=system_prompt_parts,  # type: ignore
                 betas=["interleaved-thinking-2025-05-14"],
             ) as stream:
                 logger.info("🌊 [LLM] Stream established successfully")

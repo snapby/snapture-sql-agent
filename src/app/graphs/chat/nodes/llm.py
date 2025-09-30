@@ -143,7 +143,7 @@ class LLM(Node[ChatGraphState]):
         """
 
         # Prepare system prompt
-        system_prompt_parts = [
+        system_prompt_parts: list[dict[str, Any]] = [
             {
                 "type": "text",
                 "text": f"<current_date> {datetime.now(timezone.utc).date()} </current_date>",

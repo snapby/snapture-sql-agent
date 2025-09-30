@@ -2,7 +2,9 @@
 		clean-coverage clean-all \
         lint format mypy pretty all dev prod \
 		docker_build docker_run docker_logs docker_stop \
-		generate_dependencies
+		generate_dependencies \
+		release-patch release-minor release-major \
+		generate-changelog tag-current push-tags check-clean version-info
 
 -include .env
 DOCKER_IMAGE_NAME := text-to-sql-agent
@@ -158,3 +160,86 @@ mcp-version:
 generate_dependencies:
 	uv export --format requirements-txt --only-group dev --no-hashes > requirements-dev.txt
 	uv export --format requirements-txt --no-group dev --no-hashes > requirements.txt
+
+# ------------------------------------------------------------------------------
+# Release Management
+# ------------------------------------------------------------------------------
+
+# Check if working directory is clean
+check-clean:
+	@if ! git diff --quiet || ! git diff --staged --quiet; then \
+		echo "❌ Working directory is not clean. Please commit or stash changes."; \
+		git status --porcelain; \
+		exit 1; \
+	fi
+	@echo "✅ Working directory is clean"
+
+# Generate changelog from git commits
+generate-changelog:
+	@echo "🔄 Generating changelog..."
+	@./scripts/generate_changelog.sh
+	@echo "✅ Changelog generated successfully"
+
+# Create and push git tag for current version
+tag-current:
+	@VERSION=$(uv version --short); \
+	echo "🏷️  Creating tag v$VERSION..."; \
+	git tag -a "v$VERSION" -m "Release v$VERSION"; \
+	echo "✅ Tag v$VERSION created"
+
+# Push all tags to remote
+push-tags:
+	@echo "📤 Pushing tags to remote..."
+	@git push origin --tags
+	@echo "✅ Tags pushed successfully"
+
+# Release workflow: patch version bump
+release-patch: check-clean all
+	@echo "🚀 Starting patch release..."
+	@OLD_VERSION=$(uv version --short); \
+	uv version --bump patch; \
+	NEW_VERSION=$(uv version --short); \
+	echo "📈 Version bumped: $OLD_VERSION → $NEW_VERSION"
+	@$(MAKE) generate-changelog
+	@git add pyproject.toml CHANGELOG.md uv.lock
+	@NEW_VERSION=$(uv version --short); \
+	git commit -m "chore: release v$NEW_VERSION"
+	@$(MAKE) tag-current
+	@$(MAKE) push-tags
+	@echo "🎉 Patch release v$(uv version --short) completed!"
+
+# Release workflow: minor version bump  
+release-minor: check-clean all
+	@echo "🚀 Starting minor release..."
+	@OLD_VERSION=$(uv version --short); \
+	uv version --bump minor; \
+	NEW_VERSION=$(uv version --short); \
+	echo "📈 Version bumped: $OLD_VERSION → $NEW_VERSION"
+	@$(MAKE) generate-changelog
+	@git add pyproject.toml CHANGELOG.md uv.lock
+	@NEW_VERSION=$(uv version --short); \
+	git commit -m "chore: release v$NEW_VERSION"
+	@$(MAKE) tag-current
+	@$(MAKE) push-tags
+	@echo "🎉 Minor release v$(uv version --short) completed!"
+
+# Release workflow: major version bump
+release-major: check-clean all  
+	@echo "🚀 Starting major release..."
+	@OLD_VERSION=$(uv version --short); \
+	uv version --bump major; \
+	NEW_VERSION=$(uv version --short); \
+	echo "📈 Version bumped: $OLD_VERSION → $NEW_VERSION"
+	@$(MAKE) generate-changelog
+	@git add pyproject.toml CHANGELOG.md uv.lock
+	@NEW_VERSION=$(uv version --short); \
+	git commit -m "chore: release v$NEW_VERSION"
+	@$(MAKE) tag-current
+	@$(MAKE) push-tags
+	@echo "🎉 Major release v$(uv version --short) completed!"
+
+# Show current version and release status
+version-info:
+	@UV_NO_COLOR=1 uv version --short | sed 's/\x1b\[[0-9;]*m//g' | xargs -I {} echo "📊 Current version: {}"
+	@git describe --tags --abbrev=0 2>/dev/null | xargs -I {} echo "🏷️  Latest tag: {}" || echo "🏷️  Latest tag: none"
+	@git rev-list --count HEAD | xargs -I {} echo "📝 Total commits: {}"

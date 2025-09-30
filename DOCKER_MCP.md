@@ -109,7 +109,7 @@ The container includes a health check that verifies the MCP server is responding
 docker ps  # Look for "healthy" status
 
 # Manual health check
-docker exec <container_id> curl -f http://localhost:3000/health
+docker exec <container_id> pgrep -f \"fastmcp run\"
 ```
 
 ## 🔍 Troubleshooting
@@ -181,7 +181,7 @@ services:
       - .env
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      test: ["CMD", "pgrep", "-f", "fastmcp run"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -212,7 +212,7 @@ docker-compose -f docker-compose.mcp.yml up -d
 | User | Non-root (`app:app`, UID/GID 1000) |
 | Working Directory | `/app` |
 | Default Port | `3000` |
-| Health Check | HTTP GET to `/health` |
+| Health Check | Process check (`pgrep fastmcp`) |
 | Entry Point | `uv run` |
 | Default Command | FastMCP server on HTTP transport |
 

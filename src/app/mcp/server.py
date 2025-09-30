@@ -369,7 +369,7 @@ async def chat_with_data(
             f"🤖 Starting chat with question: '{question[:100]}{'...' if len(question) > 100 else ''}'"
         )
         logger.info(
-            f"📋 LangGraph config: primary_model={config['configurable']['llm']['primary_model']}, max_tokens={config['configurable']['llm']['max_tokens']}"
+            f"📋 LangGraph config: primary_model={config['configurable']['llm']['primary_model']}, max_tokens={config['configurable']['llm']['max_tokens']}"  # type: ignore
         )
         logger.info(f"📝 Input data: {input_data}")
         logger.info(
@@ -471,7 +471,7 @@ async def chat_with_data_stream(
             f"🔄 [STREAM] Starting streaming chat with question: '{question[:100]}{'...' if len(question) > 100 else ''}'"
         )
         logger.info(
-            f"📋 [STREAM] LangGraph config: primary_model={config['configurable']['llm']['primary_model']}"
+            f"📋 [STREAM] LangGraph config: primary_model={config['configurable']['llm']['primary_model']}"  # type: ignore
         )
         logger.info(
             f"🗂️ [STREAM] Tables schema preview: {tables_schema_xml[:500]}{'...' if len(tables_schema_xml) > 500 else ''}"

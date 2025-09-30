@@ -9,7 +9,7 @@ The `Dockerfile.mcp` creates a containerized version of the MCP server with the 
 - **Multi-stage build** for optimized image size
 - **Python 3.13** runtime with UV package manager
 - **Non-root user** for enhanced security
-- **Health checks** for container monitoring
+- **Manual monitoring** capabilities
 - **Port 3000** exposed for HTTP transport
 - **FastMCP 2.0** for MCP server functionality
 
@@ -100,16 +100,22 @@ docker run -p 3000:3000 --env-file .env \
   snapture-sql-agent-mcp:latest
 ```
 
-## 🏥 Health Checks
+## 🏥 Monitoring
 
-The container includes a health check that verifies the MCP server is responding:
+Monitor the container and MCP server status:
 
 ```bash
-# Check container health
-docker ps  # Look for "healthy" status
+# Check container status
+docker ps
 
-# Manual health check
+# Check if MCP server process is running
 docker exec <container_id> pgrep -f \"fastmcp run\"
+
+# View container logs
+docker logs <container_id>
+
+# Follow logs in real-time
+docker logs -f <container_id>
 ```
 
 ## 🔍 Troubleshooting
@@ -180,12 +186,13 @@ services:
     env_file:
       - .env
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "pgrep", "-f", "fastmcp run"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
+    # Optional: Uncomment for health checks
+    # healthcheck:
+    #   test: ["CMD", "pgrep", "-f", "fastmcp run"]
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 3
+    #   start_period: 40s
     volumes:
       - ./data:/app/data  # Optional: for persistent database storage
 ```
@@ -212,7 +219,7 @@ docker-compose -f docker-compose.mcp.yml up -d
 | User | Non-root (`app:app`, UID/GID 1000) |
 | Working Directory | `/app` |
 | Default Port | `3000` |
-| Health Check | Process check (`pgrep fastmcp`) |
+| Health Check | Manual monitoring only |
 | Entry Point | `uv run` |
 | Default Command | FastMCP server on HTTP transport |
 

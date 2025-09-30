@@ -190,61 +190,61 @@ The data is now ready for SQL queries. Use the execute_sql_query tool to analyze
         os.unlink(temp_file)
 
 
-@mcp.tool
-async def execute_sql_query(
-    query: Annotated[
-        str,
-        Field(
-            description="SQL query to execute against the uploaded CSV data"
-        ),
-    ],
-    purpose: Annotated[
-        str,
-        Field(
-            description="Purpose of query: 'intermediate' for exploration, 'final' for results",
-            default="final",
-        ),
-    ],
-) -> str:
-    """Execute SQL query against the DuckDB database containing uploaded CSV data."""
-    query_executor = _get_query_executor()
+# @mcp.tool
+# async def execute_sql_query(
+#     query: Annotated[
+#         str,
+#         Field(
+#             description="SQL query to execute against the uploaded CSV data"
+#         ),
+#     ],
+#     purpose: Annotated[
+#         str,
+#         Field(
+#             description="Purpose of query: 'intermediate' for exploration, 'final' for results",
+#             default="final",
+#         ),
+#     ],
+# ) -> str:
+#     """Execute SQL query against the DuckDB database containing uploaded CSV data."""
+#     query_executor = _get_query_executor()
+#
+#     try:
+#         # Create a mock state for the query executor
+#         mock_state = type("MockState", (), {"interrupt_policy": "never"})()
+#
+#         # Create input data for the tool
+#         input_data = type(
+#             "QueryInput", (), {"query": query, "purpose": purpose}
+#         )()
+#
+#         result = await query_executor(input_data, mock_state)
+#         return f"SQL Query Results:\\n{result}"
+#
+#     except Exception as e:
+#         logger.error(f"Error executing SQL query: {e}")
+#         raise Exception(f"Error executing query: {str(e)}")
 
-    try:
-        # Create a mock state for the query executor
-        mock_state = type("MockState", (), {"interrupt_policy": "never"})()
 
-        # Create input data for the tool
-        input_data = type(
-            "QueryInput", (), {"query": query, "purpose": purpose}
-        )()
-
-        result = await query_executor(input_data, mock_state)
-        return f"SQL Query Results:\\n{result}"
-
-    except Exception as e:
-        logger.error(f"Error executing SQL query: {e}")
-        raise Exception(f"Error executing query: {str(e)}")
-
-
-@mcp.tool
-async def upload_csv_data(
-    csv_content: Annotated[
-        str, Field(description="CSV data as string content")
-    ],
-    table_name: Annotated[
-        str,
-        Field(description="Name for the table to create from the CSV data"),
-    ],
-    description: Annotated[
-        str, Field(description="Optional description of the data", default="")
-    ] = "",
-) -> str:
-    """Upload CSV data to DuckDB and make it available for querying."""
-    try:
-        return _upload_csv_helper(csv_content, table_name, description)
-    except Exception as e:
-        logger.error(f"Error uploading CSV data: {e}")
-        raise Exception(f"Error uploading CSV data: {str(e)}")
+# @mcp.tool
+# async def upload_csv_data(
+#     csv_content: Annotated[
+#         str, Field(description="CSV data as string content")
+#     ],
+#     table_name: Annotated[
+#         str,
+#         Field(description="Name for the table to create from the CSV data"),
+#     ],
+#     description: Annotated[
+#         str, Field(description="Optional description of the data", default="")
+#     ] = "",
+# ) -> str:
+#     """Upload CSV data to DuckDB and make it available for querying."""
+#     try:
+#         return _upload_csv_helper(csv_content, table_name, description)
+#     except Exception as e:
+#         logger.error(f"Error uploading CSV data: {e}")
+#         raise Exception(f"Error uploading CSV data: {str(e)}")
 
 
 @mcp.tool
@@ -417,120 +417,120 @@ async def chat_with_data(
         raise Exception(f"Error processing your question: {str(e)}")
 
 
-@mcp.tool
-async def chat_with_data_stream(
-    question: Annotated[
-        str, Field(description="Your question about the data")
-    ],
-    include_thinking: Annotated[
-        bool,
-        Field(
-            description="Whether to include AI thinking process", default=False
-        ),
-    ] = False,
-) -> List[str]:
-    """Have a conversational chat about your data with streaming response chunks."""
-    # Ensure query executor is available
-    _ = _get_query_executor()  # Initialize if needed
-
-    # Initialize chat components after ensuring DB is ready
-    _initialize_chat_components()
-
-    try:
-        streaming_chunks = []
-        current_content = ""
-        last_yielded_length = 0
-
-        # Generate tables schema XML for LangGraph configuration
-        tables_schema_xml = _generate_tables_schema_xml()
-        logger.info(
-            f"📊 [STREAM] Generated tables schema XML: {len(tables_schema_xml)} characters"
-        )
-
-        # Configure proper LangGraph config as expected by LLM node
-        config = {
-            "configurable": {
-                "llm": {
-                    "primary_model": "claude-sonnet-4-20250514",
-                    "secondary_model": "claude-opus-4-1-20250805",
-                    "max_tokens": 16384,
-                    "tables": tables_schema_xml,
-                }
-            },
-            "recursion_limit": 50,
-        }
-
-        # Stream from the chat graph with proper configuration
-        # Convert question to messages format as expected by ChatGraphState
-        input_data = {
-            "messages": [{"role": "user", "content": question}],
-            "interrupt_policy": "never",
-        }
-
-        logger.info(
-            f"🔄 [STREAM] Starting streaming chat with question: '{question[:100]}{'...' if len(question) > 100 else ''}'"
-        )
-        logger.info(
-            f"📋 [STREAM] LangGraph config: primary_model={config['configurable']['llm']['primary_model']}"  # type: ignore
-        )
-        logger.info(
-            f"🗂️ [STREAM] Tables schema preview: {tables_schema_xml[:500]}{'...' if len(tables_schema_xml) > 500 else ''}"
-        )
-
-        async for event in _chat_graph.astream(input_data, config):
-            if isinstance(event, dict):
-                for node_name, node_data in event.items():
-                    if node_name == "generate" and isinstance(node_data, dict):
-                        if "response" in node_data:
-                            response = node_data["response"]
-
-                            # Handle different response types
-                            if hasattr(response, "content"):
-                                new_content = str(response.content)
-                            elif isinstance(response, str):
-                                new_content = response
-                            else:
-                                new_content = str(response)
-
-                            # Check for new content to yield
-                            if len(new_content) > last_yielded_length:
-                                delta = new_content[last_yielded_length:]
-                                if delta.strip():  # Only add non-empty chunks
-                                    streaming_chunks.append(delta)
-                                    last_yielded_length = len(new_content)
-                            current_content = new_content
-
-                    # Include thinking/debug streams if requested
-                    elif include_thinking and node_name in [
-                        "search",
-                        "analyze",
-                        "query",
-                    ]:
-                        if isinstance(node_data, dict):
-                            thinking_text = (
-                                f"[{node_name.upper()}] {str(node_data)}"
-                            )
-                            streaming_chunks.append(thinking_text)
-
-        # If no streaming chunks collected but we have final content
-        if not streaming_chunks and current_content:
-            streaming_chunks.append(current_content)
-        elif not streaming_chunks and not current_content:
-            streaming_chunks.append(
-                "✅ I processed your request, but didn't generate a specific response. Please try rephrasing your question."
-            )
-
-        return (
-            streaming_chunks
-            if streaming_chunks
-            else ["✅ Chat completed successfully."]
-        )
-
-    except Exception as e:
-        logger.error(f"Error in chat_with_data_stream: {e}")
-        raise Exception(
-            f"Error during streaming chat: {str(e)}. Please make sure you have uploaded CSV data first."
-        )
+# @mcp.tool
+# async def chat_with_data_stream(
+#     question: Annotated[
+#         str, Field(description="Your question about the data")
+#     ],
+#     include_thinking: Annotated[
+#         bool,
+#         Field(
+#             description="Whether to include AI thinking process", default=False
+#         ),
+#     ] = False,
+# ) -> List[str]:
+#     """Have a conversational chat about your data with streaming response chunks."""
+#     # Ensure query executor is available
+#     _ = _get_query_executor()  # Initialize if needed
+#
+#     # Initialize chat components after ensuring DB is ready
+#     _initialize_chat_components()
+#
+#     try:
+#         streaming_chunks = []
+#         current_content = ""
+#         last_yielded_length = 0
+#
+#         # Generate tables schema XML for LangGraph configuration
+#         tables_schema_xml = _generate_tables_schema_xml()
+#         logger.info(
+#             f"📊 [STREAM] Generated tables schema XML: {len(tables_schema_xml)} characters"
+#         )
+#
+#         # Configure proper LangGraph config as expected by LLM node
+#         config = {
+#             "configurable": {
+#                 "llm": {
+#                     "primary_model": "claude-sonnet-4-20250514",
+#                     "secondary_model": "claude-opus-4-1-20250805",
+#                     "max_tokens": 16384,
+#                     "tables": tables_schema_xml,
+#                 }
+#             },
+#             "recursion_limit": 50,
+#         }
+#
+#         # Stream from the chat graph with proper configuration
+#         # Convert question to messages format as expected by ChatGraphState
+#         input_data = {
+#             "messages": [{"role": "user", "content": question}],
+#             "interrupt_policy": "never",
+#         }
+#
+#         logger.info(
+#             f"🔄 [STREAM] Starting streaming chat with question: '{question[:100]}{'...' if len(question) > 100 else ''}'"
+#         )
+#         logger.info(
+#             f"📋 [STREAM] LangGraph config: primary_model={config['configurable']['llm']['primary_model']}"  # type: ignore
+#         )
+#         logger.info(
+#             f"🗂️ [STREAM] Tables schema preview: {tables_schema_xml[:500]}{'...' if len(tables_schema_xml) > 500 else ''}"
+#         )
+#
+#         async for event in _chat_graph.astream(input_data, config):
+#             if isinstance(event, dict):
+#                 for node_name, node_data in event.items():
+#                     if node_name == "generate" and isinstance(node_data, dict):
+#                         if "response" in node_data:
+#                             response = node_data["response"]
+#
+#                             # Handle different response types
+#                             if hasattr(response, "content"):
+#                                 new_content = str(response.content)
+#                             elif isinstance(response, str):
+#                                 new_content = response
+#                             else:
+#                                 new_content = str(response)
+#
+#                             # Check for new content to yield
+#                             if len(new_content) > last_yielded_length:
+#                                 delta = new_content[last_yielded_length:]
+#                                 if delta.strip():  # Only add non-empty chunks
+#                                     streaming_chunks.append(delta)
+#                                     last_yielded_length = len(new_content)
+#                             current_content = new_content
+#
+#                     # Include thinking/debug streams if requested
+#                     elif include_thinking and node_name in [
+#                         "search",
+#                         "analyze",
+#                         "query",
+#                     ]:
+#                         if isinstance(node_data, dict):
+#                             thinking_text = (
+#                                 f"[{node_name.upper()}] {str(node_data)}"
+#                             )
+#                             streaming_chunks.append(thinking_text)
+#
+#         # If no streaming chunks collected but we have final content
+#         if not streaming_chunks and current_content:
+#             streaming_chunks.append(current_content)
+#         elif not streaming_chunks and not current_content:
+#             streaming_chunks.append(
+#                 "✅ I processed your request, but didn't generate a specific response. Please try rephrasing your question."
+#             )
+#
+#         return (
+#             streaming_chunks
+#             if streaming_chunks
+#             else ["✅ Chat completed successfully."]
+#         )
+#
+#     except Exception as e:
+#         logger.error(f"Error in chat_with_data_stream: {e}")
+#         raise Exception(
+#             f"Error during streaming chat: {str(e)}. Please make sure you have uploaded CSV data first."
+#         )
 
 
 if __name__ == "__main__":

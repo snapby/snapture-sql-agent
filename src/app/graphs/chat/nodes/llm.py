@@ -150,7 +150,7 @@ class LLM(Node[ChatGraphState]):
             },
             {
                 "type": "text",
-                "text": self.prompt_store.get_prompt("system.jinja2").render(
+                "text": self.prompt_store.get_prompt("system-senar.jinja2").render(
                     tables=node_config["tables"]
                 ),
             },

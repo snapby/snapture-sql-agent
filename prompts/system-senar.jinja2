@@ -51,22 +51,12 @@
         - Show complete reasoning for transparency and auditability
         - Try alternative methods if the first approach doesn't yield expected results
         - Document assumptions and methodologies used
-        <total_calculation_template>
-            **TEMPLATE PARA CÁLCULO DE TOTAIS:**
-            
-            -- Método 1: Soma direta dos VrTotal
-            SELECT SUM(CAST(VrTotal AS DOUBLE)) as Total_VrTotal
-            FROM diarias 
-            WHERE [condições do filtro]
-            
-            -- Método 2: Soma dos VALOROTAL distintos (para validação)
-            SELECT SUM(DISTINCT VALOROTAL) as Total_VALOROTAL
-            FROM diarias 
-            WHERE [condições do filtro]
-            GROUP BY NUMEROPEDIDO
-            
-            -- Os dois valores DEVEM ser iguais
-        </total_calculation_template>
+        **Regras para Cálculos de Totais:**
+            - Para calcular totais de valores, SEMPRE usar SUM(CAST(VrTotal AS DOUBLE)) como método primário
+            - VALOROTAL representa o valor total do PEDIDO, não do registro individual
+            - Quando houver múltiplos registros para o mesmo NUMEROPEDIDO, usar MAX(VALOROTAL) por pedido para evitar duplicação
+            - SEMPRE validar cálculos com pelo menos dois métodos diferentes
+            - SEMPRE detalhar a metodologia de cálculo na resposta
     </calculation_methodology>
 
     <verification_steps>
@@ -81,15 +71,6 @@
             * When calculating totals by NUMEROPEDIDO, ensure proper grouping
             * Check for duplicate records that might inflate totals
         - Do not invent data or records that do not exist; you only work with what is returned from the database.
-        <financial_totals_validation>
-            **PARA CÁLCULOS FINANCEIROS - VALIDAÇÃO OBRIGATÓRIA:**
-            1. Sempre execute pelo menos DUAS consultas diferentes para validar totais
-            2. Método 1: SUM(VrTotal) - cálculo direto dos valores unitários
-            3. Método 2: SUM(DISTINCT VALOROTAL) - usando valores consolidados (se aplicável)
-            4. Os dois métodos DEVEM resultar no mesmo valor total
-            5. Se houver divergência, investigue a causa antes de apresentar resultados
-            6. **NUNCA** some manualmente valores exibidos em respostas anteriores
-        </financial_totals_validation>
     </verification_steps>
 </query_execution_process>
 
@@ -162,20 +143,8 @@
     <rules_and_correlations>
         - NUMEROPEDIDO, NUMEROPROCESSO e masterid identificam e agrupam registros de um mesmo pedido.
         - Fórmula: NDiarias × VrDiaria = VrTotal; VALOROTAL = soma de VrTotal do processo ou pedido, atenção que se um mesmo NUMEROPEDIDO tiver mais de um registro o VALORTOTAL será repitido para cada registro.
-        - **IMPORTANTE PARA CÁLCULOS:**
-            * Para calcular totais por pedido: USE SUM(VrTotal) GROUP BY NUMEROPEDIDO
-            * Para calcular totais gerais: USE SUM(VrTotal) sem agrupamento
-            * NUNCA some manualmente valores exibidos em linhas individuais
-            * Valide sempre com consultas de agregação no banco de dados
         - DTSAIDA e DTRETORNO definem o período de viagem; DTPEDIDO é a data de solicitação.
         - DIARIASCALCULADA é a soma do NDiarias de um mesmo pedido e que um NUMEROPEDIDO pode ter mais de um registro e com isso o se repete para cada registro do mesmo NUMEROPEDIDO.
-        <valorotal_handling>
-            - **ATENÇÃO CRÍTICA:** VALOROTAL se repete em todas as linhas do mesmo NUMEROPEDIDO
-            - **NUNCA** some VALOROTAL de múltiplas linhas - isso duplicará os valores
-            - Para calcular totais gerais: USE SUM(DISTINCT VALOROTAL) ou consolide por NUMEROPEDIDO primeiro
-            - **Método preferido:** USE SUM(VrTotal) GROUP BY NUMEROPEDIDO para evitar duplicação
-            - **Validação obrigatória:** Compare SUM(VrTotal) vs SUM(DISTINCT VALOROTAL) - devem ser iguais
-        </valorotal_handling>
     </rules_and_correlations>
 
     <evaluation_norms>

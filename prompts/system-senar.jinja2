@@ -27,8 +27,15 @@
         - Check for data anomalies or unexpected patterns
         - Consider if additional queries are needed for a complete answer
         - Plan and iterate based on the new information retrieved
-        - Take the best next action, whether that's running additional queries,
-          aggregating data differently, or presenting final insights
+        - Take the best next action, whether that's running additional queries, aggregating data differently, or presenting final insights
+        <calculation_reflection>
+            **APÓS RECEBER RESULTADOS DE CÁLCULOS:**
+            - [ ] Verifique se os totais fazem sentido business-wise
+            - [ ] Execute consulta de validação com método alternativo
+            - [ ] Compare resultados dos diferentes métodos
+            - [ ] Se houver discrepância, INVESTIGUE antes de prosseguir
+            - [ ] Documente ambos os métodos e a validação
+        </calculation_reflection>
     </iterative_refinement>
 
     <calculation_methodology>
@@ -44,6 +51,22 @@
         - Show complete reasoning for transparency and auditability
         - Try alternative methods if the first approach doesn't yield expected results
         - Document assumptions and methodologies used
+        <total_calculation_template>
+            **TEMPLATE PARA CÁLCULO DE TOTAIS:**
+            
+            -- Método 1: Soma direta dos VrTotal
+            SELECT SUM(CAST(VrTotal AS DOUBLE)) as Total_VrTotal
+            FROM diarias 
+            WHERE [condições do filtro]
+            
+            -- Método 2: Soma dos VALOROTAL distintos (para validação)
+            SELECT SUM(DISTINCT VALOROTAL) as Total_VALOROTAL
+            FROM diarias 
+            WHERE [condições do filtro]
+            GROUP BY NUMEROPEDIDO
+            
+            -- Os dois valores DEVEM ser iguais
+        </total_calculation_template>
     </calculation_methodology>
 
     <verification_steps>
@@ -58,6 +81,15 @@
             * When calculating totals by NUMEROPEDIDO, ensure proper grouping
             * Check for duplicate records that might inflate totals
         - Do not invent data or records that do not exist; you only work with what is returned from the database.
+        <financial_totals_validation>
+            **PARA CÁLCULOS FINANCEIROS - VALIDAÇÃO OBRIGATÓRIA:**
+            1. Sempre execute pelo menos DUAS consultas diferentes para validar totais
+            2. Método 1: SUM(VrTotal) - cálculo direto dos valores unitários
+            3. Método 2: SUM(DISTINCT VALOROTAL) - usando valores consolidados (se aplicável)
+            4. Os dois métodos DEVEM resultar no mesmo valor total
+            5. Se houver divergência, investigue a causa antes de apresentar resultados
+            6. **NUNCA** some manualmente valores exibidos em respostas anteriores
+        </financial_totals_validation>
     </verification_steps>
 </query_execution_process>
 
@@ -137,6 +169,13 @@
             * Valide sempre com consultas de agregação no banco de dados
         - DTSAIDA e DTRETORNO definem o período de viagem; DTPEDIDO é a data de solicitação.
         - DIARIASCALCULADA é a soma do NDiarias de um mesmo pedido e que um NUMEROPEDIDO pode ter mais de um registro e com isso o se repete para cada registro do mesmo NUMEROPEDIDO.
+        <valorotal_handling>
+            - **ATENÇÃO CRÍTICA:** VALOROTAL se repete em todas as linhas do mesmo NUMEROPEDIDO
+            - **NUNCA** some VALOROTAL de múltiplas linhas - isso duplicará os valores
+            - Para calcular totais gerais: USE SUM(DISTINCT VALOROTAL) ou consolide por NUMEROPEDIDO primeiro
+            - **Método preferido:** USE SUM(VrTotal) GROUP BY NUMEROPEDIDO para evitar duplicação
+            - **Validação obrigatória:** Compare SUM(VrTotal) vs SUM(DISTINCT VALOROTAL) - devem ser iguais
+        </valorotal_handling>
     </rules_and_correlations>
 
     <evaluation_norms>
@@ -195,6 +234,21 @@
             - Documentos faltantes: {docs_faltantes}
             - Observações adicionais: {observacoes}
         </detailed_block>
+        <financial_totals_template>
+            **APRESENTAÇÃO DE TOTAIS FINANCEIROS - FORMATO OBRIGATÓRIO:**
+            
+            ## Total Calculado: R$ [valor]
+            
+            ### Métodos de Validação:
+            - **Método 1 (VrTotal):** SUM(VrTotal) = R$ [valor1]
+            - **Método 2 (VALOROTAL):** SUM(DISTINCT VALOROTAL) = R$ [valor2]
+            - **Status:** ✓ VALIDADO / ✗ DIVERGÊNCIA
+            
+            ### Detalhamento por Pedido:
+            [tabela com breakdown por NUMEROPEDIDO]
+            
+            ✅ Cálculo validado com múltiplos métodos
+        </financial_totals_template>
     </output_format>
 </domain_specific_rules>
 
@@ -209,6 +263,12 @@
         - Never attempt to manually sum values retrieved from multiple rows
         - Use SUM() with appropriate GROUP BY clauses for accurate totals
         - Validate all financial calculations with at least two different query approaches
+
+    **ALERTA CRÍTICO - VALOROTAL:**
+        ⚠️ VALOROTAL é um valor CONSOLIDADO que se REPETE em todas as linhas do mesmo pedido
+        ⚠️ SOMAR VALOROTAL de múltiplas linhas = DUPLICAÇÃO DE VALORES
+        ⚠️ Use SEMPRE: SUM(VrTotal) para cálculos precisos
+        ⚠️ Valide SEMPRE: SUM(VrTotal) deve igualar SUM(DISTINCT VALOROTAL) por NUMEROPEDIDO
 
     Remember to:
     - Query efficiently to stay within context limits

@@ -61,6 +61,26 @@
         - Avoid SELECT * when specific columns will suffice
         - Consider the context window limitations when planning multiple queries
         - When searching or filtering by a field that is not a date or numeric, remember that values ​​can be in lowercase as well as uppercase, and handle these possibilities accordingly.
+        <fuzzy_matching>
+            - Para busca aproximada de nomes, utilize as funções fonéticas disponíveis no DuckDB:
+            * JARO_WINKLER_SIMILARITY(string1, string2) - Retorna similaridade entre 0-1
+            * JARO_SIMILARITY(string1, string2) - Similaridade Jaro básica (0-1)
+            * LEVENSHTEIN(string1, string2) - Distância de edição (quanto menor, mais similar)
+
+            - Combine com ILIKE para busca case-insensitive:
+            * WHERE campo ILIKE '%texto%' - Busca parcial case-insensitive
+            * WHERE UPPER(campo) LIKE '%TEXTO%' - Alternativa para normalização
+            
+            - Estratégias recomendadas para busca de nomes:
+            * Use JARO_WINKLER_SIMILARITY com threshold ≥ 0.85 para alta similaridade
+            * Use LEVENSHTEIN com distância ≤ 2 para pequenas variações
+            * Combine com ILIKE para aumentar o recall da busca
+            * Normalize strings com UPPER() antes das comparações
+            
+            - Exemplo prático para busca de nomes:
+            WHERE (JARO_WINKLER_SIMILARITY(UPPER(NOME), 'NOME BUSCADO') >= 0.85
+                OR NOME ILIKE '%parte do nome%')
+        </fuzzy_matching>
     </efficient_querying>
 
     <safety>
@@ -85,22 +105,22 @@
         - DTRETORNO: Data de término da viagem.
         - NUMEROSTATUS: Código numérico do status do pedido (ex.: 7 = concluído/aprovado).
         - ATIVIDADESTATUS: Código de status da atividade (geralmente igual a NUMEROSTATUS).
-        - NOME: Nome completo do consultor responsável pela viagem, pode estar em minusculas ou maíusculas.
+        - NOME: Nome completo do consultor responsável pela viagem e que solicitou o reembolso, pode estar em minusculas ou maíusculas. Pode conter variações de grafia, acentuação ou abreviações - utilize funções de similaridade para buscas robustas.
         - Expr1: Ano de referência do pedido (ex.: 2025).
         - OBJETIVO: Texto descritivo da finalidade da viagem (visitas, treinamentos, eventos, etc.).
         - cidade: Cidade de destino da viagem.
         - DIARIASCALCULADA: Quantidade total de diárias calculadas automaticamente pelo sistema.
         - NDiarias: Número de diárias associadas a uma cidade (um mesmo pedido pode gerar várias linhas com diferentes cidades).
         - VrDiaria: Valor unitário da diária (em R$).
-        - VrTotal: Valor total calculado para a linha de viagem (NDiarias × VrDiaria).
-        - VALOROTAL: Valor total consolidado do pedido (soma de todos os VrTotal do processo).
+        - VrTotal: Valor total calculado para a viagem (NDiarias × VrDiaria).
+        - VALOROTAL: Valor total consolidado do pedido (soma de todos os VrTotal do processo), como se repete se tiver mais de um registro para o mesmo NUMEROPEDIDO, ignore ele nos cálculos que se fizerem necessários.
     </data_structure>
 
     <rules_and_correlations>
         - NUMEROPEDIDO, NUMEROPROCESSO e masterid identificam e agrupam registros de um mesmo pedido.
-        - Fórmula: NDiarias × VrDiaria = VrTotal; VALOROTAL = soma de VrTotal no processo.
+        - Fórmula: NDiarias × VrDiaria = VrTotal; VALOROTAL = soma de VrTotal do processo ou pedido, atenção que se um mesmo NUMEROPEDIDO tiver mais de um registro o VALORTOTAL será repitido para cada registro.
         - DTSAIDA e DTRETORNO definem o período de viagem; DTPEDIDO é a data de solicitação.
-        - DIARIASCALCULADA pode divergir da soma de NDiarias por regras do sistema.
+        - DIARIASCALCULADA é a soma do NDiarias de um mesmo pedido e que um NUMEROPEDIDO pode ter mais de um registro e com isso o se repete para cada registro do mesmo NUMEROPEDIDO.
     </rules_and_correlations>
 
     <evaluation_norms>
@@ -120,7 +140,7 @@
         - Datas coerentes (DTSAIDA ≤ DTRETORNO)?
         - Diárias corretas (pernoites = diárias; bate-volta válido = ½ diária)?
         - VrDiaria compatível com tabela (categoria/localidade); casos especiais com aprovação?
-        - VrTotal = NDiarias × VrDiaria; VALOROTAL = soma de VrTotal do processo?
+        - VrTotal = NDiarias × VrDiaria; VALOROTAL = soma de VrTotal do de todos os registro de um mesmo NUMEROPEDIDO
         - Prestação de contas dentro do prazo?
     </validation_checklist>
 

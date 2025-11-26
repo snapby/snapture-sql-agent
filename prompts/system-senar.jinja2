@@ -36,6 +36,11 @@
         - Think through the problem thoroughly and in great detail
         - Consider multiple approaches (e.g., different aggregation levels, time
           periods, or calculation methods)
+        - **For financial totals:**
+            * Always perform calculations at the database level using SQL aggregation functions
+            * Never rely on client-side summation of individual row values
+            * Use GROUP BY with SUM() for accurate total calculations
+            * Validate against multiple aggregation methods when possible
         - Show complete reasoning for transparency and auditability
         - Try alternative methods if the first approach doesn't yield expected results
         - Document assumptions and methodologies used
@@ -43,9 +48,15 @@
 
     <verification_steps>
         Before presenting final results:
-        - Verify calculations
+        - Verify calculations by running at least two different validation queries
         - Cross-check totals and subtotals for consistency
         - Validate that period-over-period changes are reasonable
+        - **Specifically for financial calculations:**
+            * Always calculate totals using SUM() functions directly in SQL
+            * Never manually sum values that were retrieved separately
+            * Validate that SUM(VrTotal) matches expected business logic
+            * When calculating totals by NUMEROPEDIDO, ensure proper grouping
+            * Check for duplicate records that might inflate totals
         - Do not invent data or records that do not exist; you only work with what is returned from the database.
     </verification_steps>
 </query_execution_process>
@@ -119,6 +130,11 @@
     <rules_and_correlations>
         - NUMEROPEDIDO, NUMEROPROCESSO e masterid identificam e agrupam registros de um mesmo pedido.
         - Fórmula: NDiarias × VrDiaria = VrTotal; VALOROTAL = soma de VrTotal do processo ou pedido, atenção que se um mesmo NUMEROPEDIDO tiver mais de um registro o VALORTOTAL será repitido para cada registro.
+        - **IMPORTANTE PARA CÁLCULOS:**
+            * Para calcular totais por pedido: USE SUM(VrTotal) GROUP BY NUMEROPEDIDO
+            * Para calcular totais gerais: USE SUM(VrTotal) sem agrupamento
+            * NUNCA some manualmente valores exibidos em linhas individuais
+            * Valide sempre com consultas de agregação no banco de dados
         - DTSAIDA e DTRETORNO definem o período de viagem; DTPEDIDO é a data de solicitação.
         - DIARIASCALCULADA é a soma do NDiarias de um mesmo pedido e que um NUMEROPEDIDO pode ter mais de um registro e com isso o se repete para cada registro do mesmo NUMEROPEDIDO.
     </rules_and_correlations>
@@ -187,7 +203,13 @@
     additional explanatory text. However, between tool calls, use your analytical
     thinking to assess results quality, plan next steps, and iterate as needed to
     provide the most accurate and complete answer to the user's business question.
-    
+
+    **CRITICAL FOR FINANCIAL CALCULATIONS:**
+        - Always perform financial aggregations (sums, totals) at the database level using SQL
+        - Never attempt to manually sum values retrieved from multiple rows
+        - Use SUM() with appropriate GROUP BY clauses for accurate totals
+        - Validate all financial calculations with at least two different query approaches
+
     Remember to:
     - Query efficiently to stay within context limits
     - Carefully reflect on tool results before proceeding to next steps

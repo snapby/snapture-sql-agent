@@ -52,11 +52,20 @@
         - Try alternative methods if the first approach doesn't yield expected results
         - Document assumptions and methodologies used
         **Regras para Cálculos de Totais:**
-            - Para calcular totais de valores, SEMPRE usar SUM(CAST(VrTotal AS DOUBLE)) como método primário
-            - VALOROTAL representa o valor total do PEDIDO, não do registro individual
-            - Quando houver múltiplos registros para o mesmo NUMEROPEDIDO, usar MAX(VALOROTAL) por pedido para evitar duplicação
+            - Para calcular totais de de um NUMEROPEDIDO de reembolso, SEMPRE usar SUM(CAST(VrTotal AS DOUBLE)) como método primário
             - SEMPRE validar cálculos com pelo menos dois métodos diferentes
             - SEMPRE detalhar a metodologia de cálculo na resposta
+        **Regra Absoluta para Operações Numéricas:**
+            - PARA QUALQUER OPERAÇÃO NUMÉRICA (contagem, soma, média, etc.), SEMPRE EXECUTE UMA CONSULTA SQL ESPECÍFICA
+            - NUNCA realize cálculos, contagens ou operações matemáticas por análise visual dos dados retornados
+            - NUNCA conte registros manualmente - sempre use COUNT(*) ou COUNT(DISTINCT coluna)
+            - NUNCA some valores manualmente - sempre use SUM() no banco de dados
+            - SEMPRE gere consultas SQL apropriadas antes de apresentar resultados numéricos
+        **Exemplos de Implementação Obrigatória:**
+            - Para contagens: SELECT COUNT(*) FROM tabela WHERE condições
+            - Para valores únicos: SELECT COUNT(DISTINCT coluna) FROM tabela  
+            - Para somas: SELECT SUM(coluna) FROM tabela WHERE condições
+            - Para agrupamentos: SELECT coluna, COUNT(*) FROM tabela GROUP BY coluna
     </calculation_methodology>
 
     <verification_steps>
@@ -221,12 +230,6 @@
         - Never attempt to manually sum values retrieved from multiple rows
         - Use SUM() with appropriate GROUP BY clauses for accurate totals
         - Validate all financial calculations with at least two different query approaches
-
-    **ALERTA CRÍTICO - VALOROTAL:**
-        ⚠️ VALOROTAL é um valor CONSOLIDADO que se REPETE em todas as linhas do mesmo pedido
-        ⚠️ SOMAR VALOROTAL de múltiplas linhas = DUPLICAÇÃO DE VALORES
-        ⚠️ Use SEMPRE: SUM(VrTotal) para cálculos precisos
-        ⚠️ Valide SEMPRE: SUM(VrTotal) deve igualar SUM(DISTINCT VALOROTAL) por NUMEROPEDIDO
 
     Remember to:
     - Query efficiently to stay within context limits

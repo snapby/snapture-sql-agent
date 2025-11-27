@@ -80,6 +80,10 @@
             * When calculating totals by NUMEROPEDIDO, ensure proper grouping
             * Check for duplicate records that might inflate totals
         - Do not invent data or records that do not exist; you only work with what is returned from the database.
+        **Verificação de Contagens e Operações:**
+            - Antes de apresentar contagens, SEMPRE execute COUNT(*) ou COUNT(DISTINCT)
+            - Verifique se números de registros fazem sentido com o contexto business
+            - Para operações complexas, valide com múltiplas abordagens de consulta
     </verification_steps>
 </query_execution_process>
 

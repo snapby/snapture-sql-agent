@@ -30,11 +30,11 @@
         - Take the best next action, whether that's running additional queries, aggregating data differently, or presenting final insights
         <calculation_reflection>
             **APÓS RECEBER RESULTADOS DE CÁLCULOS:**
-            - [ ] Verifique se os totais fazem sentido business-wise
-            - [ ] Execute consulta de validação com método alternativo
-            - [ ] Compare resultados dos diferentes métodos
-            - [ ] Se houver discrepância, INVESTIGUE antes de prosseguir
-            - [ ] Documente ambos os métodos e a validação
+            - Verifique se os totais fazem sentido business-wise
+            - Execute consulta de validação com método alternativo
+            - Compare resultados dos diferentes métodos
+            - Se houver discrepância, INVESTIGUE antes de prosseguir
+            - Documente ambos os métodos e a validação
         </calculation_reflection>
     </iterative_refinement>
 
@@ -119,32 +119,23 @@
     </context>
 
     <data_structure>
-        - CRIADOR: Usuário responsável por criar o pedido (login ou identificador).
         - NUMEROPEDIDO: Número único do pedido de diária.
-        - NUMEROPROCESSO: Número do processo administrativo vinculado ao pedido (pode ser igual ao número do pedido).
-        - documentid: Identificador interno único do registro.
-        - masterid: Identificador que agrupa registros relacionados ao mesmo processo/pedido.
         - DTPEDIDO: Data em que o pedido foi registrado.
         - DTSAIDA: Data de início da viagem.
         - DTRETORNO: Data de término da viagem.
-        - NUMEROSTATUS: Código numérico do status do pedido (ex.: 7 = concluído/aprovado).
-        - ATIVIDADESTATUS: Código de status da atividade (geralmente igual a NUMEROSTATUS).
         - NOME: Nome completo do consultor responsável pela viagem e que solicitou o reembolso, pode estar em minusculas ou maíusculas. Pode conter variações de grafia, acentuação ou abreviações - utilize funções de similaridade para buscas robustas.
-        - Expr1: Ano de referência do pedido (ex.: 2025).
         - OBJETIVO: Texto descritivo da finalidade da viagem (visitas, treinamentos, eventos, etc.).
         - cidade: Cidade de destino da viagem.
-        - DIARIASCALCULADA: Quantidade total de diárias calculadas automaticamente pelo sistema.
         - NDiarias: Número de diárias associadas a uma cidade (um mesmo pedido pode gerar várias linhas com diferentes cidades).
         - VrDiaria: Valor unitário da diária (em R$).
         - VrTotal: Valor total calculado para a viagem (NDiarias × VrDiaria).
-        - VALOROTAL: Valor total consolidado do pedido (soma de todos os VrTotal do processo), como se repete se tiver mais de um registro para o mesmo NUMEROPEDIDO, ignore ele nos cálculos que se fizerem necessários.
     </data_structure>
 
     <rules_and_correlations>
-        - NUMEROPEDIDO, NUMEROPROCESSO e masterid identificam e agrupam registros de um mesmo pedido.
-        - Fórmula: NDiarias × VrDiaria = VrTotal; VALOROTAL = soma de VrTotal do processo ou pedido, atenção que se um mesmo NUMEROPEDIDO tiver mais de um registro o VALORTOTAL será repitido para cada registro.
+        - NUMEROPEDIDO identifica e agrupa registros de um mesmo pedido.
+        - Fórmula: NDiarias × VrDiaria = VrTotal; a soma de VrTotal do pedido, atenção que se um mesmo NUMEROPEDIDO tiver mais de um registro o VALOR TOTAL do pedido será a soma dos seus registros.
         - DTSAIDA e DTRETORNO definem o período de viagem; DTPEDIDO é a data de solicitação.
-        - DIARIASCALCULADA é a soma do NDiarias de um mesmo pedido e que um NUMEROPEDIDO pode ter mais de um registro e com isso o se repete para cada registro do mesmo NUMEROPEDIDO.
+        - A soma do NDiarias de todos os registros de um mesmo pedido é o total de reembolso de diárias de um NUMEROPEDIDO.
     </rules_and_correlations>
 
     <evaluation_norms>
@@ -164,7 +155,7 @@
         - Datas coerentes (DTSAIDA ≤ DTRETORNO)?
         - Diárias corretas (pernoites = diárias; bate-volta válido = ½ diária)?
         - VrDiaria compatível com tabela (categoria/localidade); casos especiais com aprovação?
-        - VrTotal = NDiarias × VrDiaria; VALOROTAL = soma de VrTotal do de todos os registro de um mesmo NUMEROPEDIDO
+        - VrTotal = NDiarias × VrDiaria; Considere a soma de VrTotal do de todos os registro de um mesmo NUMEROPEDIDO
         - Prestação de contas dentro do prazo?
     </validation_checklist>
 
@@ -172,7 +163,7 @@
         <summary_table>
             >>> FORMATO DA SAÍDA PADRONIZADO (somente para pedidos sinalizados) <<<
             1) Quadro-resumo (tabela Markdown única com TODOS os pedidos sinalizados), colunas:
-            | Pedido Nº | Consultor (CRIADOR) | Nome (NOME) | Período Total (primeira DTSAIDA → último DTRETORNO) | Cidades | Soma NDiarias | Dias de Viagem | Valor Total (∑ VrTotal) | Atraso do Pedido (dias) | Nível de Risco | Motivos |
+            | Pedido Nº | Nome (NOME) | Período Total (primeira DTSAIDA → último DTRETORNO) | Cidades | Soma NDiarias | Dias de Viagem | Valor Total (∑ VrTotal) | Atraso do Pedido (dias) | Nível de Risco | Motivos |
             - Ordene por Nível de Risco (desc) e, depois, por Valor Total (desc).
             - Se nenhum pedido for sinalizado, NÃO imprima nada.
         </summary_table>
@@ -181,7 +172,6 @@
             2) Bloco detalhado por pedido (após o quadro-resumo):
             PEDIDO SINALIZADO PARA REVISÃO
             - Pedido Nº: {NUMEROPEDIDO}
-            - Consultor (CRIADOR): {CRIADOR}
             - Nome (NOME): {NOME}
             - Período Total: {DTSAIDA_min} a {DTRETORNO_max} ({dias_viagem} dias; {pernoites} pernoites)
             - Cidades: {cidades_lista}
@@ -210,7 +200,6 @@
             
             ### Métodos de Validação:
             - **Método 1 (VrTotal):** SUM(VrTotal) = R$ [valor1]
-            - **Método 2 (VALOROTAL):** SUM(DISTINCT VALOROTAL) = R$ [valor2]
             - **Status:** ✓ VALIDADO / ✗ DIVERGÊNCIA
             
             ### Detalhamento por Pedido:

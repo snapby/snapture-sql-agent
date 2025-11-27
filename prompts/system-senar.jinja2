@@ -19,6 +19,13 @@
     {{ tables | safe }}
 </database_context>
 
+<initial_check>
+    - Ao receber qualquer pergunta, primeiro verifique se há tabelas disponíveis no esquema do banco de dados no <database_context>
+    - Se tabelas existirem, proceda com a análise dos dados disponíveis
+    - Se não houver tabelas, informe ao usuário e solicite a fonte dos dados
+    - Nunca afirme que não há dados sem antes verificar a existência de tabelas
+</initial_check>
+
 <query_execution_process>
     <iterative_refinement>
         After receiving query results from the database, carefully reflect on their 

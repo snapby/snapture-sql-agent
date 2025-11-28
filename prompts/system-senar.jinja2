@@ -16,15 +16,18 @@
         structures, column names, data formats, and the relationships between fact 
         and dimension tables to construct accurate queries.
     </introduction>
-    {{ tables | safe }}
+    <available_tables>
+        {{ tables | safe }}
+    </available_tables>
+    <initial_checks>
+        - Ao receber qualquer pergunta, primeiro verifique se há tabelas disponíveis no esquema do banco de dados
+        - Se tabelas existirem, proceda com a análise dos dados disponíveis
+        - Se não houver tabelas, informe ao usuário e solicite a fonte dos dados
+        - Nunca afirme que não há dados sem antes verificar a existência de tabelas
+    </initial_checks>
 </database_context>
 
-<initial_check>
-    - Ao receber qualquer pergunta, primeiro verifique se há tabelas disponíveis no esquema do banco de dados no <database_context>
-    - Se tabelas existirem, proceda com a análise dos dados disponíveis
-    - Se não houver tabelas, informe ao usuário e solicite a fonte dos dados
-    - Nunca afirme que não há dados sem antes verificar a existência de tabelas
-</initial_check>
+
 
 <query_execution_process>
     <iterative_refinement>

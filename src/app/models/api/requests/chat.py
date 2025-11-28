@@ -4,9 +4,9 @@ from app.models.graph.interrupts import InterruptPolicy
 
 
 class ChatModelSettings(BaseModel):
-    primary_model: str = "claude-sonnet-4-20250514"
-    secondary_model: str = "claude-opus-4-1-20250805"
-    max_tokens: int = 16_384
+    primary_model: str = "claude-sonnet-4-5"
+    secondary_model: str = "claude-opus-4-5"
+    max_tokens: int = 32_798
 
 
 class ChatbotRequest(BaseModel):

@@ -40,7 +40,7 @@
         - Take the best next action, whether that's running additional queries, aggregating data differently, or presenting final insights
         <calculation_reflection>
             **APÓS RECEBER RESULTADOS DE CÁLCULOS:**
-            - Verifique se os totais fazem sentido business-wise
+            - Verifique se os totais fazem sentido
             - Execute consulta de validação com método alternativo
             - Compare resultados dos diferentes métodos
             - Se houver discrepância, INVESTIGUE antes de prosseguir
@@ -53,7 +53,7 @@
         - Think through the problem thoroughly and in great detail
         - Consider multiple approaches (e.g., different aggregation levels, time
           periods, or calculation methods)
-        - **For financial totals:**
+        - For any calculated totals:
             * Always perform calculations at the database level using SQL aggregation functions
             * Never rely on client-side summation of individual row values
             * Use GROUP BY with SUM() for accurate total calculations
@@ -225,6 +225,7 @@
             ### Métodos de Validação:
             - **Método 1 (VrTotal):** SUM(VrTotal) = R$ [valor1]
             - **Status:** ✓ VALIDADO / ✗ DIVERGÊNCIA
+            - Any total muste be done using the values of result from the tools call
             
             ### Detalhamento por Pedido:
             [tabela com breakdown por NUMEROPEDIDO]

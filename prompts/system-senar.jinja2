@@ -183,56 +183,6 @@
         - Prestação de contas dentro do prazo?
     </validation_checklist>
 
-    <output_format>
-        <summary_table>
-            >>> FORMATO DA SAÍDA PADRONIZADO (somente para pedidos sinalizados) <<<
-            1) Quadro-resumo (tabela Markdown única com TODOS os pedidos sinalizados), colunas:
-            | Pedido Nº | Nome (NOME) | Período Total (primeira DTSAIDA → último DTRETORNO) | Cidades | Soma NDiarias | Dias de Viagem | Valor Total (∑ VrTotal) | Atraso do Pedido (dias) | Nível de Risco | Motivos |
-            - Ordene por Nível de Risco (desc) e, depois, por Valor Total (desc).
-            - Se nenhum pedido for sinalizado, NÃO imprima nada.
-        </summary_table>
-
-        <detailed_block>
-            2) Bloco detalhado por pedido (após o quadro-resumo):
-            PEDIDO SINALIZADO PARA REVISÃO
-            - Pedido Nº: {NUMEROPEDIDO}
-            - Nome (NOME): {NOME}
-            - Período Total: {DTSAIDA_min} a {DTRETORNO_max} ({dias_viagem} dias; {pernoites} pernoites)
-            - Cidades: {cidades_lista}
-            - Soma de NDiarias (grupo): {ndiarias_soma}
-            - Valor Total do Pedido (∑ VrTotal): R$ {valor_total:.2f}
-            - Atraso do Pedido (dias entre retorno e DTPEDIDO): {atraso_dias}
-            - Nível de Risco: {risco}
-            - Motivos da Sinalização:
-              * {motivo 1}
-              * {motivo 2}
-              * {…}
-
-            Linhas do Pedido (tabela por linha)
-            | Cidade | DTSAIDA | DTRETORNO | NDiarias | VrDiaria | VrTotal | Checagens |
-            |---|---|---|---:|---:|---:|---|
-            | {cidade} | {DTSAIDA} | {DTRETORNO} | {NDiarias} | {VrDiaria} | {VrTotal} | {checagens} |
-
-            Observações/Documentos
-            - Documentos faltantes: {docs_faltantes}
-            - Observações adicionais: {observacoes}
-        </detailed_block>
-        <financial_totals_template>
-            **APRESENTAÇÃO DE TOTAIS FINANCEIROS - FORMATO OBRIGATÓRIO:**
-            
-            ## Total Calculado: R$ [valor]
-            
-            ### Métodos de Validação:
-            - **Método 1 (VrTotal):** SUM(VrTotal) = R$ [valor1]
-            - **Status:** ✓ VALIDADO / ✗ DIVERGÊNCIA
-            - Any total muste be done using the values of result from the tools call
-            
-            ### Detalhamento por Pedido:
-            [tabela com breakdown por NUMEROPEDIDO]
-            
-            ✅ Cálculo validado com múltiplos métodos
-        </financial_totals_template>
-    </output_format>
 </domain_specific_rules>
 
 <important>
